@@ -1498,14 +1498,14 @@ public:
 
         // 绿色
         //NVGcolor color_green = nvgRGBA(0, 255, 0, 60);        // 绿色
-        NVGcolor icon_color_green = nvgRGBA(0, 255, 0, 150); // 绿色（图标）
+        //NVGcolor icon_color_green = nvgRGBA(0, 255, 0, 150); // 绿色（图标）
 
         // 紫色
         NVGcolor color_purple = nvgRGBA(138, 43, 226, 60);        // 紫色（BlueViolet）
         NVGcolor icon_color_purple = nvgRGBA(138, 43, 226, 150); // 紫色（图标）
 
         NVGcolor color_cyan = nvgRGBA(0, 255, 255, 60);        // 青色
-        NVGcolor icon_color_cyan = nvgRGBA(0, 255, 255, 150); // 青色（图标）
+        //NVGcolor icon_color_cyan = nvgRGBA(0, 255, 255, 150); // 青色（图标）
 
         NVGcolor color_pink = nvgRGBA(233, 37, 227, 60);        // 青色
         NVGcolor icon_color_pink = nvgRGBA(233, 37, 227, 150); // 青色（图标）
@@ -1548,6 +1548,7 @@ public:
         left_blindspot = 1;
         right_blindspot = 1;
 #endif
+
         if(leftLaneChange || show_lane_info == 2){
             if (left_blindspot) {
                 ui_draw_bsd(s, lane_barrier_vertices[0], &color_red, false);
@@ -1678,19 +1679,107 @@ public:
             top_y += vertical_spacing;
         }
 
-        //激光雷达/摄像头/实线图标绘制
+        int lfDrelValid = amapNavi.getLfDrelValid();
+        int lbDrelValid = amapNavi.getLbDrelValid();
+        int rfDrelValid = amapNavi.getRfDrelValid();
+        int rbDrelValid = amapNavi.getRbDrelValid();
+        float lfDrel = (float)amapNavi.getLfDrel()/10;
+        float lbDrel = (float)amapNavi.getLbDrel()/10;
+        float rfDrel = (float)amapNavi.getRfDrel()/10;
+        float rbDrel = (float)amapNavi.getRbDrel()/10;
+
+        //TEST
+#if 0
+        lfDrelValid = 1;
+        lbDrelValid = 1;
+        rfDrelValid = 1;
+        rbDrelValid = 1;
+        lfDrel = 100.1;
+        lbDrel = -99.5;
+        rfDrel = 45.1;
+        rbDrel = -67.2;
+#endif
+        //TEST
+
+        // 左侧距离显示
+        if(lfDrelValid || lbDrelValid)
+        {
+            int cx = center_x - horizontal_offset;
+            int cy = top_y + circle_radius;
+
+            char text[16];
+            // 文字在圆左侧
+            float text_x = cx - circle_radius - 30;
+            float text_offset_y = 35;   // 上下偏移距离
+            nvgFontSize(s->vg, 40);
+            nvgFillColor(s->vg, nvgRGB(255, 255, 0));
+            // 靠右对齐，文字靠近圆
+            nvgTextAlign(s->vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+            // lfDrel 上面
+            if(lfDrelValid)
+            {
+                snprintf(text, sizeof(text), "%.1f", lfDrel);
+                nvgText(s->vg,
+                        text_x,
+                        cy - text_offset_y,
+                        text,
+                        nullptr);
+            }
+            // lbDrel 下面
+            if(lbDrelValid)
+            {
+                snprintf(text, sizeof(text), "%.1f", lbDrel);
+                nvgText(s->vg,
+                        text_x,
+                        cy + text_offset_y,
+                        text,
+                        nullptr);
+            }
+        }
+
+        // 右侧距离显示
+        if(rfDrelValid || rbDrelValid)
+        {
+            int cx = center_x + horizontal_offset;
+            int cy = top_y + circle_radius;
+            char text[16];
+            // 文字在圆右侧
+            float text_x = cx + circle_radius + 30;
+            float text_offset_y = 35;
+            nvgFontSize(s->vg, 40);
+            nvgFillColor(s->vg, nvgRGB(255, 255, 0));
+            nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+            // rfDrel 上面
+            if(rfDrelValid)
+            {
+                snprintf(text, sizeof(text), "%.1f", rfDrel);
+                nvgText(s->vg,
+                        text_x,
+                        cy - text_offset_y,
+                        text,
+                        nullptr);
+            }
+            // rbDrel 下面
+            if(rbDrelValid)
+            {
+                snprintf(text, sizeof(text), "%.1f", rbDrel);
+                nvgText(s->vg,
+                        text_x,
+                        cy + text_offset_y,
+                        text,
+                        nullptr);
+            }
+        }
+
+        //激光雷达/摄像头图标绘制
         icon_show = false;
-        if (carrotLeftBlind > 0) {
+        if ((carrotLeftBlind & (~8)) > 0) {
             int cx = center_x - horizontal_offset;
             int cy = top_y + circle_radius;  // 保持在中间
             nvgBeginPath(s->vg);
             nvgCircle(s->vg, cx, cy, circle_radius);
-            if((0 != (carrotLeftBlind & 8)) && (0 != (carrotLeftBlind & 1)) && (0 != (carrotLeftBlind & 2))){ //实线+激光雷达盲区+摄像头
+            if((0 != (carrotLeftBlind & 1)) && (0 != (carrotLeftBlind & 2))){ //激光雷达盲区+摄像头
                 nvgFillColor(s->vg, icon_color_pink);
-            }else if((0 != (carrotLeftBlind & 8)) && (0 != (carrotLeftBlind & 1))){ //实线+激光雷达盲区
-                nvgFillColor(s->vg, icon_color_cyan);
-            }else if(0 != (carrotLeftBlind & 8)){ //实线
-                nvgFillColor(s->vg, icon_color_green);
             }else if(0 != (carrotLeftBlind & 2)){ //摄像头盲区
                 nvgFillColor(s->vg, icon_color_purple);
             }else{ //激光雷达盲区
@@ -1759,19 +1848,38 @@ public:
             nvgStrokeWidth(s->vg, 10); // 10像素描边
             nvgStroke(s->vg);
         }
+        //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
+        if ((carrotLeftBlind & 8) > 0) {
+            int line_width = 15;  // 实线宽度，可调整
+            int line_height = circle_radius * 2;
+
+            // 左圆中心
+            int cx = center_x - horizontal_offset;
+            int cy = top_y + circle_radius;
+
+            // 矩形放在圆的右侧（靠近车辆）
+            int x = cx + circle_radius + 30;
+            int y = cy - line_height / 2;
+
+            nvgBeginPath(s->vg);
+            nvgRect(s->vg,
+                    x,
+                    y,
+                    line_width,
+                    line_height);
+
+            nvgFillColor(s->vg, icon_color_yellow);
+            nvgFill(s->vg);
+        }
 
         icon_show = false;
-        if (carrotRightBlind > 0) {
+        if ((carrotRightBlind & (~8)) > 0) {
             int cx = center_x + horizontal_offset;
             int cy = top_y + circle_radius;  // 保持在中间
             nvgBeginPath(s->vg);
             nvgCircle(s->vg, cx, cy, circle_radius);
-            if((0 != (carrotRightBlind & 8)) && (0 != (carrotRightBlind & 1)) && (0 != (carrotRightBlind & 2))){ //实线+激光雷达盲区+摄像头
+            if((0 != (carrotRightBlind & 1)) && (0 != (carrotRightBlind & 2))){ //激光雷达盲区+摄像头
                 nvgFillColor(s->vg, icon_color_pink);
-            }else if((0 != (carrotRightBlind & 8)) && (0 != (carrotRightBlind & 1))){ //实线+激光雷达盲区
-                nvgFillColor(s->vg, icon_color_cyan);
-            }else if(0 != (carrotRightBlind & 8)){ //实线
-                nvgFillColor(s->vg, icon_color_green);
             }else if(0 != (carrotRightBlind & 2)){ //摄像头盲区
                 nvgFillColor(s->vg, icon_color_purple);
             }else{ //激光雷达盲区
@@ -1840,12 +1948,36 @@ public:
             nvgStrokeWidth(s->vg, 10); // 10像素描边
             nvgStroke(s->vg);
         }
+        //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
+        if ((carrotRightBlind & 8) > 0) {
+            int line_width = 15;
+            int line_height = circle_radius * 2;
+
+            // 右圆中心
+            int cx = center_x + horizontal_offset;
+            int cy = top_y + circle_radius;
+
+            // 矩形放在圆的左侧（靠近车辆）
+            int x = cx - circle_radius - line_width - 30;
+            int y = cy - line_height / 2;
+
+            nvgBeginPath(s->vg);
+            nvgRect(s->vg,
+                    x,
+                    y,
+                    line_width,
+                    line_height);
+
+            nvgFillColor(s->vg, icon_color_yellow);
+            nvgFill(s->vg);
+        }
 
         icon_show = true;
         if(icon_show){
             top_y += vertical_spacing;
         }
 
+        //原车后盲区图标绘制
         icon_show = false;
         if (left_blindspot) {
             int cx = center_x - horizontal_offset;
