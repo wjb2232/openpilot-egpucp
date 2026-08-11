@@ -1485,6 +1485,45 @@ protected:
         return true;
     }
 public:
+    void drawTextWithBg(NVGcontext *vg, float x, float y, const char *text, bool rightAlign)
+    {
+        float bounds[4];
+
+        nvgFontSize(vg, 50);
+        nvgTextAlign(vg, rightAlign ?
+                     (NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE) :
+                     (NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE));
+
+        // 获取文字尺寸
+        nvgTextBounds(vg, x, y, text, nullptr, bounds);
+
+        float padding_x = 10;
+        float padding_y = 6;
+
+        float rect_x = bounds[0] - padding_x;
+        float rect_y = bounds[1] - padding_y;
+        float rect_w = bounds[2] - bounds[0] + padding_x * 2;
+        float rect_h = bounds[3] - bounds[1] + padding_y * 2;
+
+
+        // 半透明黑色背景
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg,
+                       rect_x,
+                       rect_y,
+                       rect_w,
+                       rect_h,
+                       6);
+
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, 150));   // alpha 150
+        nvgFill(vg);
+
+
+        // 绘制文字
+        nvgFillColor(vg, nvgRGB(255, 255, 0));
+        nvgText(vg, x, y, text, nullptr);
+    }
+
     void draw(const UIState* s,int show_lane_info) {
         if (!make_data(s)) return;
 
@@ -1495,6 +1534,7 @@ public:
         NVGcolor icon_color_red = nvgRGBA(255, 0, 0, 150); //红色
         NVGcolor icon_color_yellow = nvgRGBA(255, 215, 0, 150); //黄色
         NVGcolor icon_color_blue = nvgRGBA(0, 0, 255, 150); //蓝色
+        NVGcolor line_color_yellow = nvgRGBA(255, 255, 0, 255);
 
         // 绿色
         //NVGcolor color_green = nvgRGBA(0, 255, 0, 60);        // 绿色
@@ -1711,7 +1751,7 @@ public:
             // 文字在圆左侧
             float text_x = cx - circle_radius - 30;
             float text_offset_y = 35;   // 上下偏移距离
-            nvgFontSize(s->vg, 40);
+            nvgFontSize(s->vg, 50);
             nvgFillColor(s->vg, nvgRGB(255, 255, 0));
             // 靠右对齐，文字靠近圆
             nvgTextAlign(s->vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
@@ -1719,21 +1759,21 @@ public:
             if(lfDrelValid)
             {
                 snprintf(text, sizeof(text), "%.1f", lfDrel);
-                nvgText(s->vg,
-                        text_x,
-                        cy - text_offset_y,
-                        text,
-                        nullptr);
+                drawTextWithBg(s->vg,
+                               text_x,
+                               cy - text_offset_y,
+                               text,
+                               true);
             }
             // lbDrel 下面
             if(lbDrelValid)
             {
                 snprintf(text, sizeof(text), "%.1f", lbDrel);
-                nvgText(s->vg,
-                        text_x,
-                        cy + text_offset_y,
-                        text,
-                        nullptr);
+                drawTextWithBg(s->vg,
+                               text_x,
+                               cy + text_offset_y,
+                               text,
+                               true);
             }
         }
 
@@ -1746,28 +1786,28 @@ public:
             // 文字在圆右侧
             float text_x = cx + circle_radius + 30;
             float text_offset_y = 35;
-            nvgFontSize(s->vg, 40);
+            nvgFontSize(s->vg, 50);
             nvgFillColor(s->vg, nvgRGB(255, 255, 0));
             nvgTextAlign(s->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
             // rfDrel 上面
             if(rfDrelValid)
             {
                 snprintf(text, sizeof(text), "%.1f", rfDrel);
-                nvgText(s->vg,
-                        text_x,
-                        cy - text_offset_y,
-                        text,
-                        nullptr);
+                drawTextWithBg(s->vg,
+                               text_x,
+                               cy - text_offset_y,
+                               text,
+                               false);
             }
             // rbDrel 下面
             if(rbDrelValid)
             {
                 snprintf(text, sizeof(text), "%.1f", rbDrel);
-                nvgText(s->vg,
-                        text_x,
-                        cy + text_offset_y,
-                        text,
-                        nullptr);
+                drawTextWithBg(s->vg,
+                               text_x,
+                               cy + text_offset_y,
+                               text,
+                               false);
             }
         }
 
@@ -1850,7 +1890,7 @@ public:
         }
         //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
         if ((carrotLeftBlind & 8) > 0) {
-            int line_width = 15;  // 实线宽度，可调整
+            int line_width = 20;  // 实线宽度，可调整
             int line_height = circle_radius * 2;
 
             // 左圆中心
@@ -1868,7 +1908,7 @@ public:
                     line_width,
                     line_height);
 
-            nvgFillColor(s->vg, icon_color_yellow);
+            nvgFillColor(s->vg, line_color_yellow);
             nvgFill(s->vg);
         }
 
@@ -1950,7 +1990,7 @@ public:
         }
         //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
         if ((carrotRightBlind & 8) > 0) {
-            int line_width = 15;
+            int line_width = 20;
             int line_height = circle_radius * 2;
 
             // 右圆中心
@@ -1968,7 +2008,7 @@ public:
                     line_width,
                     line_height);
 
-            nvgFillColor(s->vg, icon_color_yellow);
+            nvgFillColor(s->vg, line_color_yellow);
             nvgFill(s->vg);
         }
 
