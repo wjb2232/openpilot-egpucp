@@ -63,6 +63,7 @@ class Controls:
     self.custom_sr_speed2 = self.params.get_int("CustomSRSpeed2")
     self.sr = self.params.get_float("SteerRatioRate") / 100.0
     self.frame = 0
+    self.sr_live = 0.
     # 2026.7.26 add
 
     self.side_state = {
@@ -116,6 +117,7 @@ class Controls:
       t = max(0.0, min(1.0,(speed - custom_sr_speed) / (custom_sr_speed2 - custom_sr_speed)))
       sr = custom_sr + (custom_sr2 - custom_sr) * t
 
+    self.sr_live = sr
     self.VM.update_params(x, sr)
 
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)
@@ -364,6 +366,9 @@ class Controls:
       cs.lateralControlState.torqueState = lac_log
 
     cs.activeLaneLine = self.lanefull_mode_enabled
+
+    cs.liveSR = self.sr_live
+
     self.pm.send('controlsState', dat)
 
     # carControl

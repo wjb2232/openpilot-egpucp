@@ -913,6 +913,7 @@ struct ControlsState @0x97ff69c53601abf1 {
   forceDecel @51 :Bool;
 
   activeLaneLine @67 : Bool;
+  liveSR @68 :Float32;
 
   lateralControlState :union {
     pidState @53 :LateralPIDState;

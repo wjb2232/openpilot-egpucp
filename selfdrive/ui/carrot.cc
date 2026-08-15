@@ -3619,6 +3619,9 @@ public:
         auto car_state = sm["carState"].getCarState();
         float a_ego = car_state.getAEgo();
 
+        auto controls_state = sm["controlsState"].getControlsState();
+        float liveSR = controls_state.getLiveSR();
+
         a_ego_width = a_ego_width * 0.5 + (w * std::abs(a_ego) / 4.0) * 0.5;
         ui_fill_rect(vg, { w/2 - (int)(a_ego_width / 2), h - 30, (int)a_ego_width, 30 }, (a_ego >= 0)? COLOR_YELLOW : COLOR_RED, 15);
 
@@ -3649,7 +3652,7 @@ public:
             (float)live_delay.getCalPerc(), live_delay.getLateralDelay(),
             (float)live_torque_params.getCalPerc(), live_torque_params.getLiveValid() ? "ON" : "OFF",
             live_torque_params.getLatAccelFactorFiltered(), live_torque_params.getFrictionCoefficientFiltered(),
-            live_params.getSteerRatio(), params.getFloat("CustomSR")/10.0,
+            live_params.getSteerRatio(), liveSR, //params.getFloat("CustomSR")/10.0,
             live_params.getAngleOffsetAverageDeg(),
             live_params.getAngleOffsetDeg());
         sprintf(top_right, "%s", str.toStdString().c_str());
