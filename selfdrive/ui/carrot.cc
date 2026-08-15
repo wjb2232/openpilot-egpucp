@@ -1535,6 +1535,7 @@ public:
         NVGcolor icon_color_yellow = nvgRGBA(255, 215, 0, 150); //黄色
         NVGcolor icon_color_blue = nvgRGBA(0, 0, 255, 150); //蓝色
         NVGcolor line_color_yellow = nvgRGBA(255, 255, 0, 255);
+        NVGcolor line_color_blue = nvgRGBA(0, 0, 255, 255); //蓝色
 
         // 绿色
         //NVGcolor color_green = nvgRGBA(0, 255, 0, 60);        // 绿色
@@ -1884,8 +1885,14 @@ public:
 
             nvgBeginPath(s->vg);
             nvgCircle(s->vg, cx, cy, circle_radius);
-            nvgStrokeColor(s->vg, icon_color_blue);
+            nvgStrokeColor(s->vg, line_color_blue);
             nvgStrokeWidth(s->vg, 10); // 10像素描边
+            nvgStroke(s->vg);
+
+            nvgBeginPath(s->vg);
+            nvgCircle(s->vg, cx, cy, circle_radius - 10);
+            nvgStrokeColor(s->vg, line_color_yellow);
+            nvgStrokeWidth(s->vg, 10);
             nvgStroke(s->vg);
         }
         //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
@@ -1984,8 +1991,14 @@ public:
 
             nvgBeginPath(s->vg);
             nvgCircle(s->vg, cx, cy, circle_radius);
-            nvgStrokeColor(s->vg, icon_color_blue);
+            nvgStrokeColor(s->vg, line_color_blue);
             nvgStrokeWidth(s->vg, 10); // 10像素描边
+            nvgStroke(s->vg);
+
+            nvgBeginPath(s->vg);
+            nvgCircle(s->vg, cx, cy, circle_radius - 10);
+            nvgStrokeColor(s->vg, line_color_yellow);
+            nvgStrokeWidth(s->vg, 10);
             nvgStroke(s->vg);
         }
         //粗实线绘制(黄色)，可以用一个扁的矩形进行颜色填充来绘制
