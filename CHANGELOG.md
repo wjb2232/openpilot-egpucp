@@ -1,3 +1,17 @@
+sunnypilot Version MR.ONE-2026 C3XL (2026-08-29)
+========================
+* C3XL (comma 3X) internal black panda (DOS) support
+  * USB transport for the internal panda (C3XL has no SPI connection to the panda MCU)
+  * Restored STM32F4 firmware build for the DOS board
+  * Fixed F4 panda freeze under heavy CAN load (stack/.bss overlap)
+  * Fixed stale bootloader magic causing boot into the ROM bootloader after reset
+  * pandad: wait for the internal panda to boot before deciding to flash; no reset/reflash on every boot
+  * DFU flash reliability fixes (jump command, DFU serial number, F4 DFU support)
+* Upstream sync (sunnypilot/sunnypilot master)
+  * osm: support map deletion via sunnylink (#1971)
+  * Sync: commaai/openpilot:master -> sunnypilot/sunnypilot:master (#1973)
+  * chestnut (usbgpu) rename, model selector upgrades, modeld fallback improvements
+
 sunnypilot Version MR.ONE-2026 (2026-08-15) 
 ========================
 * MR.ONE Custom Features / MR.ONE 个性化功能
