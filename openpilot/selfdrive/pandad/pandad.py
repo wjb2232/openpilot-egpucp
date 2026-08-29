@@ -118,27 +118,40 @@ def main() -> None:
 
       # Handle missing internal panda
       if no_internal_panda_count > 0:
-        cloudlog.info("No pandas found, resetting internal panda")
-        HARDWARE.reset_internal_panda()
-        # The internal panda takes a few seconds to boot its app after a reset.
-        # Wait for it to come back in normal (non-bootstub) mode before
-        # deciding whether to flash. Only fall back to the bootloader
-        # (recover) path if it never appears.
-        panda_serials: list[str] = []
-        for _ in range(16):
-          panda_serials = Panda.list()
-          if len(panda_serials) == 1:
-            try:
-              with Panda(panda_serials[0]) as p:
-                if not p.bootstub:
-                  break
-            except Exception:
-              pass
-          time.sleep(0.5)
+        # The internal panda's USB may not be enumerated yet shortly after
+        # boot. Poll for it before resetting: resetting before it has finished
+        # enumerating kicks it into the ROM bootloader/DFU, which makes it take
+        # much longer to come online.
+        panda_serials: list[str] = Panda.list()
         if not panda_serials:
-          cloudlog.info("Panda did not appear after reset, trying recover...")
-          HARDWARE.recover_internal_panda()
-          time.sleep(5)
+          cloudlog.info("Panda not found yet, waiting for USB enumeration...")
+          for _ in range(20):
+            time.sleep(1)
+            panda_serials = Panda.list()
+            if len(panda_serials):
+              cloudlog.info(f"Panda appeared after waiting: {panda_serials}")
+              break
+        if not panda_serials:
+          cloudlog.info("No pandas found, resetting internal panda")
+          HARDWARE.reset_internal_panda()
+          # The internal panda takes a few seconds to boot its app after a reset.
+          # Wait for it to come back in normal (non-bootstub) mode before
+          # deciding whether to flash. Only fall back to the bootloader
+          # (recover) path if it never appears.
+          for _ in range(16):
+            panda_serials = Panda.list()
+            if len(panda_serials) == 1:
+              try:
+                with Panda(panda_serials[0]) as p:
+                  if not p.bootstub:
+                    break
+              except Exception:
+                pass
+            time.sleep(0.5)
+          if not panda_serials:
+            cloudlog.info("Panda did not appear after reset, trying recover...")
+            HARDWARE.recover_internal_panda()
+            time.sleep(5)
       else:
         panda_serials = Panda.list()
 
