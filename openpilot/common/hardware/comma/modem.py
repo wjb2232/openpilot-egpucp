@@ -328,7 +328,7 @@ class Modem:
 
     identity = self._read_identity()
     if not identity["iccid"] or not identity["imei"]:
-      logging.warning(f"identity read incomplete: {identity}, retrying")
+      logging.debug(f"identity read incomplete: {identity}, retrying")
       return State.INITIALIZING
 
     self._configure_modem(identity["modem_version"])
