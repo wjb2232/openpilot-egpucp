@@ -137,6 +137,21 @@ def main() -> None:
               cloudlog.info(f"Panda appeared after waiting: {panda_serials}")
               break
         if not panda_serials:
+          # The panda may be in its bootstub phase: USB is enumerated (3801)
+          # but not yet fully openable by libusb while it validates the app and
+          # switches to it. Only reset if the USB device is truly absent, since
+          # resetting mid-bootstub just restarts the ~10s boot sequence.
+          import subprocess
+          usb_present = '3801' in subprocess.run(['lsusb'], capture_output=True, text=True).stdout
+          if usb_present:
+            cloudlog.info("Panda USB present but not enumerable (bootstub->app?), waiting up to 30s...")
+            for _ in range(60):
+              time.sleep(0.5)
+              panda_serials = Panda.list()
+              if len(panda_serials):
+                cloudlog.info(f"Panda appeared after waiting: {panda_serials}")
+                break
+        if not panda_serials:
           cloudlog.info("No pandas found, resetting internal panda")
           HARDWARE.reset_internal_panda()
           # The internal panda takes a few seconds to boot its app after a reset.
