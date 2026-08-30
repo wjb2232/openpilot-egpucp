@@ -141,7 +141,8 @@ def main() -> None:
           # but not yet fully openable by libusb while it validates the app and
           # switches to it. Only reset if the USB device is truly absent, since
           # resetting mid-bootstub just restarts the ~10s boot sequence.
-          import subprocess
+          # NOTE: no local 'import subprocess' here - it would shadow the
+          # module-level import and break subprocess.Popen below.
           usb_present = '3801' in subprocess.run(['lsusb'], capture_output=True, text=True).stdout
           if usb_present:
             cloudlog.info("Panda USB present but not enumerable (bootstub->app?), waiting up to 30s...")
