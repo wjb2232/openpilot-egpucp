@@ -111,6 +111,7 @@ def main() -> None:
 
   count = 0
   no_internal_panda_count = 0
+  recover_attempts = 0
   while not do_exit:
     try:
       cloudlog.event("pandad.flash_and_connect", count=count)
@@ -138,7 +139,7 @@ def main() -> None:
           # Wait for it to come back in normal (non-bootstub) mode before
           # deciding whether to flash. Only fall back to the bootloader
           # (recover) path if it never appears.
-          for _ in range(16):
+          for _ in range(40):
             panda_serials = Panda.list()
             if len(panda_serials) == 1:
               try:
@@ -149,9 +150,18 @@ def main() -> None:
                 pass
             time.sleep(0.5)
           if not panda_serials:
-            cloudlog.info("Panda did not appear after reset, trying recover...")
+            # Never force a board that already has firmware into the ROM
+            # bootloader right away: recover() erases the app sector before
+            # reflashing. Only a truly blank board needs it, and that is
+            # detected after several normal resets fail to produce a panda.
+            if not PandaDFU.list() and recover_attempts < 3:
+              recover_attempts += 1
+              cloudlog.warning(f"Panda did not appear after reset ({recover_attempts}/3), retrying normal reset...")
+              continue
+            recover_attempts = 0
+            cloudlog.info("Panda missing after normal resets, entering ROM bootloader (recover)...")
             HARDWARE.recover_internal_panda()
-            time.sleep(5)
+            time.sleep(2)
       else:
         panda_serials = Panda.list()
 
@@ -184,6 +194,7 @@ def main() -> None:
           process = subprocess.Popen(["./pandad", panda_serials[0]], cwd=os.path.join(BASEDIR, "openpilot/selfdrive/pandad"))
           process.wait()
           no_internal_panda_count = 0
+          recover_attempts = 0
         elif len(panda_serials) > 1:
           cloudlog.warning(f"multiple supported pandas found, cannot run single-panda pandad: {panda_serials}")
           no_internal_panda_count += 1
