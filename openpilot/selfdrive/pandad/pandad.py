@@ -125,8 +125,12 @@ def main() -> None:
         # much longer to come online.
         panda_serials: list[str] = Panda.list()
         if not panda_serials:
-          cloudlog.info("Panda not found yet, waiting for USB enumeration...")
-          for _ in range(20):
+          cloudlog.info("Panda not found yet, waiting briefly for USB enumeration...")
+          # Measured on C3XL: the internal panda does NOT enumerate by itself
+          # after a cold boot (20s of polling found nothing), it only comes
+          # back after a reset. Waiting 20s just delays going onroad, so wait
+          # a short time for the normal case then reset.
+          for _ in range(5):
             time.sleep(1)
             panda_serials = Panda.list()
             if len(panda_serials):
