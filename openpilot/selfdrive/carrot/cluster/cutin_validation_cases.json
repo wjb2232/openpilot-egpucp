@@ -2,6 +2,241 @@
   "sensitivity": 50,
   "cases": [
     {
+      "id": "carnival-178-62-interrupted-vision-stationary-reflections-36-56",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000178--52f7f496c5--62/rlog.zst",
+      "source": "front+corner",
+      "window": [17.3, 19.4],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [36, 56],
+      "forbidden_lead_one_ids": [36, 56],
+      "forbidden_lead_two_ids": [36, 56],
+      "scene": "At a roundabout a moving white vehicle briefly appears in vision while stationary front returns remain beside the island. A long vision-support interruption must reset stationary confirmation time, so three later supported frames cannot borrow the old dwell and authorize front 36 or its successor 56"
+    },
+    {
+      "id": "carnival-178-53-moving-vision-stationary-reflection-32",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000178--52f7f496c5--53/rlog.zst",
+      "source": "front+corner",
+      "window": [12.8, 16.5],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [32],
+      "forbidden_lead_one_ids": [32],
+      "forbidden_lead_two_ids": [32],
+      "scene": "User-reviewed green-light approach: vision, moving front 35 and corner 4983 follow the real vehicle while stationary front reflection 32 briefly crosses the visual range; neither position-lock admission nor closer-lead retention may borrow that moving vehicle's evidence"
+    },
+    {
+      "id": "carnival-178-53-moving-front-35-uncertain-vision-range",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000178--52f7f496c5--53/rlog.zst",
+      "source": "front",
+      "window": [17.20, 19.10],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [35],
+      "required_lead_one_ids": [35],
+      "lead_one_continuous_window": [17.20, 19.10],
+      "latest_detection_s": 17.25,
+      "scene": "User-reviewed moving vehicle: front 35 already matches model lead zero and remains physically continuous. At 17.35 s front range is 90.18 m, vision is 81.12 m with xStd 9.70 m; an unconditional 8 m post-match guard must not oscillate L1 to vision while uncertainty and track continuity support the same moving front"
+    },
+    {
+      "id": "carnival-178-53-real-stopping-lead-35",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000178--52f7f496c5--53/rlog.zst",
+      "source": "front+corner",
+      "window": [27.5, 45.0],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [35],
+      "required_lead_one_ids": [35],
+      "latest_detection_s": 27.6,
+      "scene": "The same real front vehicle later slows and stops at the next red light; rejecting the earlier static reflection must preserve front 35 as the approaching and stopped lead"
+    },
+    {
+      "id": "carnival-175-35-unconfirmed-stationary-front-37-58",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000175--f97562d8d2--35/rlog.zst",
+      "source": "front+corner",
+      "window": [32.8, 35.0],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [37, 58],
+      "forbidden_lead_one_ids": [37, 58],
+      "forbidden_lead_two_ids": [37, 58],
+      "scene": "User-reviewed tunnel: two long-observed stationary front returns become L1 without corresponding vision or corner radar; neither is a vehicle in the ego lane"
+    },
+    {
+      "id": "carnival-175-35-unconfirmed-stationary-front-48",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000175--f97562d8d2--35/rlog.zst",
+      "source": "front+corner",
+      "window": [42.3, 44.4],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [48],
+      "forbidden_lead_one_ids": [48],
+      "forbidden_lead_two_ids": [48],
+      "scene": "User-reviewed tunnel: stationary front return 48 has no corresponding vision or corner detection and must not become a control lead"
+    },
+    {
+      "id": "carnival-175-35-unconfirmed-stationary-front-49",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000175--f97562d8d2--35/rlog.zst",
+      "source": "front+corner",
+      "window": [45.7, 46.7],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [49],
+      "forbidden_lead_one_ids": [49],
+      "forbidden_lead_two_ids": [49],
+      "scene": "User-reviewed tunnel: stationary front return 49 has no corresponding vision or corner detection and must not become a control lead"
+    },
+    {
+      "id": "carnival-175-35-unconfirmed-stationary-front-55",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000175--f97562d8d2--35/rlog.zst",
+      "source": "front+corner",
+      "window": [48.3, 51.1],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [55],
+      "forbidden_lead_one_ids": [55],
+      "forbidden_lead_two_ids": [55],
+      "scene": "User-reviewed tunnel: stationary front return 55 has no corresponding vision or corner detection and must not become a control lead"
+    },
+    {
+      "id": "carnival-175-42-unconfirmed-stationary-front-61",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000175--f97562d8d2--42/rlog.zst",
+      "source": "front+corner",
+      "window": [8.0, 13.4],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [61],
+      "forbidden_lead_one_ids": [61],
+      "forbidden_lead_two_ids": [61],
+      "scene": "User-reviewed empty rural road: stationary front return 61 persists for almost five seconds without corresponding vision or corner radar and must not become a control lead"
+    },
+    {
+      "id": "ioniq5-e7d-3-unconfirmed-stationary-front-52",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 07b62e389ed26c81",
+      "log": "00000e7d--929c32ef9a--3/rlog.zst",
+      "source": "front+corner",
+      "window": [12.0, 15.50],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [52],
+      "forbidden_lead_one_ids": [52],
+      "forbidden_lead_two_ids": [52],
+      "scene": "The real slow vehicle has no corresponding corner return. Vision support at 15.05 s is interrupted beyond the short hold; renewed support starts at 15.249 s and must complete a fresh 0.25-second confirmation before front 52 is admitted"
+    },
+    {
+      "id": "ioniq5-e7d-3-closer-stationary-front-52",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 07b62e389ed26c81",
+      "log": "00000e7d--929c32ef9a--3/rlog.zst",
+      "source": "front+corner",
+      "window": [15.08, 16.30],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [52],
+      "required_lead_one_ids": [52],
+      "latest_detection_s": 15.60,
+      "scene": "The closer slow front vehicle must replace the farther moving match after fresh confirmation from 15.249 s, completing at 15.540 s. The earlier 15.15 s deadline required radar-only admission; the subsequent 15.45 s deadline still borrowed time across interrupted vision. The intentional 0.152 s detection delay is recorded in docs/carrot_radar_interrupted_vision_validation.md"
+    },
+    {
+      "id": "ioniq5-e7d-5-stationary-front-vision-range-jitter-52",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 07b62e389ed26c81",
+      "log": "00000e7d--929c32ef9a--5/rlog.zst",
+      "source": "front+corner",
+      "window": [30.34, 30.43],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [52],
+      "required_lead_one_ids": [52],
+      "latest_detection_s": 30.40,
+      "scene": "The confirmed corner-corroborated stopped front target remains physically continuous while vision range briefly jumps about 10 m closer; leadOne must stay radar-backed"
+    },
+    {
+      "id": "carnival-16f-3-stationary-model-speed-lag-43",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000016f--e5c88aaf17--3/rlog.zst",
+      "source": "front+corner",
+      "window": [26.70, 27.30],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [43],
+      "required_lead_one_ids": [43],
+      "latest_detection_s": 27.10,
+      "scene": "A high-quality front return has tracked the stopped vehicle continuously while the model range and lateral position agree but model velocity remains near road speed; physical leadOne must acquire before hard braking begins"
+    },
+    {
+      "id": "ev6-3c4-25-close-side-pass-before-overlap-3160",
+      "vehicle_folder": "KIA_EV6 7ed8cd504eff73bd",
+      "log": "000003c4--4dc470bd3e--25/rlog.zst",
+      "source": "front+corner",
+      "window": [2.10, 3.05],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [62, 3160],
+      "forbidden_lead_two_ids": [3160],
+      "scene": "The close left vehicle will pass behind ego before its extrapolated lateral overlap; the paired side-body return must not produce an early leadTwo or CUT-IN alert"
+    },
+    {
+      "id": "ev6-3c4-25-actual-left-cutin-3174",
+      "vehicle_folder": "KIA_EV6 7ed8cd504eff73bd",
+      "log": "000003c4--4dc470bd3e--25/rlog.zst",
+      "source": "front+corner",
+      "window": [6.85, 8.10],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [3174],
+      "latest_detection_s": 7.15,
+      "scene": "The white sedan is visibly crossing into the ego lane and must remain leadTwo after suppressing its earlier non-actionable side-body forecast"
+    },
+    {
+      "id": "ev6-3c4-25-far-parallel-nonclosing-3020",
+      "vehicle_folder": "KIA_EV6 7ed8cd504eff73bd",
+      "log": "000003c4--4dc470bd3e--25/rlog.zst",
+      "source": "front+corner",
+      "window": [36.00, 37.85],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [52, 3020],
+      "forbidden_lead_two_ids": [3020],
+      "scene": "A far non-closing adjacent-lane vehicle has no vision support and only weak projected drift outside the path; crossing vRel +0.5 m/s must not promote it to leadTwo"
+    },
+    {
+      "id": "carnival-172-14-delayed-front-association-cutin-2920",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000172--e4003be6e5--14/rlog.zst",
+      "source": "front+corner",
+      "window": [5.25, 6.65],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [51, 2920],
+      "latest_detection_s": 5.40,
+      "scene": "The left vehicle begins its measured OUT-to-IN motion as raw corner id2920, then acquires front id51; the first cross-sensor association must preserve the continuous outside history and promote it to leadTwo"
+    },
+    {
       "id": "ioniq9-a7-37-empty-road-stationary-corner-2294",
       "vehicle_folder": "HYUNDAI_IONIQ_9 7a9a8e68022c1881",
       "log": "000001a7--2948dd51d1--37/rlog.zst",
@@ -14,6 +249,19 @@
       "forbidden_lead_one_ids": [2294, 2333],
       "forbidden_lead_two_ids": [2294, 2333],
       "scene": "Empty straight road: close-born uncorroborated stationary or moving corner reflections must not become leadOne or leadTwo"
+    },
+    {
+      "id": "ioniq9-a7-37-fast-away-confirmed-cutin-2358",
+      "vehicle_folder": "HYUNDAI_IONIQ_9 7a9a8e68022c1881",
+      "log": "000001a7--2948dd51d1--37/rlog.zst",
+      "source": "corner",
+      "window": [52.65, 53.20],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [2358],
+      "latest_detection_s": 52.95,
+      "scene": "A right-side vehicle is already committed into the ego path while pulling away; it must become leadTwo without requesting longitudinal pre-deceleration"
     },
     {
       "id": "ioniq5-e32-56-corner-early-risk-3504",
@@ -42,6 +290,31 @@
       "scene": "The same sedan has materially entered the ego lane and must be promoted to leadTwo before the legacy far-corner motion gate releases"
     },
     {
+      "id": "ioniq5-e32-56-adjacent-reversal-3545",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 07b62e389ed26c81",
+      "log": "00000e32--3c0b7b9a59--56/rlog.zst",
+      "source": "corner",
+      "window": [5.35, 5.85],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [3545],
+      "forbidden_lead_two_ids": [3545],
+      "scene": "Right-lane vehicle briefly appears to move inward, then its recent trajectory reverses and it remains outside; a stale CUT-IN or pre-deceleration hold must not resurface"
+    },
+    {
+      "id": "k8-2db-56-stopped-cross-sensor-duplicate-22",
+      "vehicle_folder": "KIA_K8_HEV_1ST_GEN b34d1abb87cce93b",
+      "log": "000002db--6b934dd8b1--56/rlog.zst",
+      "source": "front+corner",
+      "window": [20.50, 23.50],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "required_lead_one_ids": [55],
+      "forbidden_lead_two_ids": [5961],
+      "scene": "Front track 55 and corner track 5961 are the same stopped vehicle; the corner stationary hypothesis must not duplicate the configured front leadOne as leadTwo"
+    },
+    {
       "id": "k8-2db-56-stopped-motorcycle-leadone-35",
       "vehicle_folder": "KIA_K8_HEV_1ST_GEN b34d1abb87cce93b",
       "log": "000002db--6b934dd8b1--56/rlog.zst",
@@ -50,6 +323,18 @@
       "expected": "clear",
       "required_lead_one_ids": [35],
       "scene": "Strong vision range and a distinct closer front-radar track should hand leadOne from the stopped car to the motorcycle without SCC support"
+    },
+    {
+      "id": "ioniq9-2c5-23-close-born-rear-pass-53",
+      "vehicle_folder": "HYUNDAI_IONIQ_9 c92fab3f15c0dbfb",
+      "log": "000002c5--86044a22d0--23/rlog.zst",
+      "source": "front+corner",
+      "window": [53.45, 54.20],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [3284, 3286],
+      "forbidden_lead_two_ids": [3284, 3286],
+      "scene": "The right vehicle first appears beside the rear bumper and pulls ahead while the left vehicle remains parallel; weak perspective drift with close cross-sensor support must not become a CUT-IN"
     },
     {
       "id": "k8-2e3-33-close-low-speed-predecel-3423",
@@ -63,6 +348,30 @@
       "target_track_ids": [3423],
       "latest_detection_s": 22.20,
       "scene": "A moving vehicle cuts in at low traffic speed with weak longitudinal closing; paired front and corner radar should request bounded pre-deceleration before normal leadTwo confirmation"
+    },
+    {
+      "id": "k8-2e3-33-close-side-reflection-3442",
+      "vehicle_folder": "KIA_K8_HEV_1ST_GEN b34d1abb87cce93b",
+      "log": "000002e3--e8f3253035--33/rlog.zst",
+      "source": "corner",
+      "window": [32.90, 33.80],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [3442, 3443],
+      "forbidden_lead_two_ids": [3442, 3443, 52],
+      "scene": "Very close side reflections jump across the path projection but no vehicle enters the ego lane"
+    },
+    {
+      "id": "k8-2e3-33-close-side-reflection-3445",
+      "vehicle_folder": "KIA_K8_HEV_1ST_GEN b34d1abb87cce93b",
+      "log": "000002e3--e8f3253035--33/rlog.zst",
+      "source": "corner",
+      "window": [34.85, 35.90],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [3445],
+      "forbidden_lead_two_ids": [3445],
+      "scene": "A second close side reflection crosses the mathematical path without a visible cut-in"
     },
     {
       "id": "ioniq5-4b9-7-corner-predecel-cutin-28",
@@ -89,6 +398,19 @@
       "target_track_ids": [2091],
       "latest_detection_s": 28.80,
       "scene": "The same right-side vehicle is separately required to reach ordinary confirmed CUT-IN leadTwo after the earlier pre-deceleration risk"
+    },
+    {
+      "id": "ioniq5-4b9-7-confirmed-cutin-2127",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 7f419ed56030e135",
+      "log": "000004b9--f989b3c8ec--7/rlog.zst",
+      "source": "corner",
+      "window": [45.70, 46.50],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [2127],
+      "latest_detection_s": 46.05,
+      "scene": "A right-side vehicle has sustained inward motion and is confirmed to enter the ego path; the greater than 15 metre range must not block leadTwo promotion"
     },
     {
       "id": "carnival-5b-18-early",
@@ -126,6 +448,8 @@
       "window": [17.5, 19.2],
       "expected": "detect",
       "human_verified": true,
+      "target_track_ids": [59, 201, 202],
+      "lead_two_continuous_window": [17.69, 19.2],
       "scene": "Close vehicle enters from the right; detect before it reaches the lane line"
     },
     {
@@ -137,6 +461,41 @@
       "expected": "clear",
       "human_verified": true,
       "scene": "Fast adjacent-lane change remains outside the ego lane"
+    },
+    {
+      "id": "carnival-5b-15-close-id-handoff-24",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000005b--02344a68f2--15/rlog.1.zst",
+      "source": "front+corner",
+      "window": [23.80, 25.80],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [51, 201, 202],
+      "forbidden_lead_two_ids": [51, 201, 202],
+      "scene": "Close right-side radar identities hand off while remaining outside the ego lane; neither the reflection nor its paired front ID may become leadTwo"
+    },
+    {
+      "id": "carnival-5b-15-away-side-motion-34",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000005b--02344a68f2--15/rlog.1.zst",
+      "source": "corner",
+      "window": [34.30, 35.20],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [202],
+      "scene": "A nearby side target is moving away longitudinally and must not raise a cut-in pre-deceleration risk"
+    },
+    {
+      "id": "carnival-5b-15-path-jump-205",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000005b--02344a68f2--15/rlog.1.zst",
+      "source": "corner",
+      "window": [35.95, 37.25],
+      "expected": "clear",
+      "human_verified": true,
+      "target_track_ids": [205],
+      "forbidden_lead_two_ids": [205],
+      "scene": "An uncorroborated corner track produces an implausibly large path-rate jump while the visible vehicle stays outside the ego lane"
     },
     {
       "id": "carnival-5b-15-truck",
@@ -246,6 +605,19 @@
       "scene": "A truck stays in the adjacent right lane while quantized front-radar lateral position briefly moves inward; weak directional consistency must not promote track 57 to leadTwo"
     },
     {
+      "id": "niro-63c-5-close-front-lateral-wander-35",
+      "vehicle_folder": "KIA_NIRO_HEV_2ND_GEN c903ce877d9129f9",
+      "log": "0000063c--4b9b21b7f0--5/rlog.zst",
+      "source": "front",
+      "window": [53.50, 56.50],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [35],
+      "forbidden_lead_two_ids": [35],
+      "scene": "At close range, front-radar lateral wander on a vehicle remaining in the adjacent right lane must not become CUT-IN, pre-deceleration, or leadTwo"
+    },
+    {
       "id": "carnival-ed-11-motorcycle-cutout-stationary-shadow",
       "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
       "log": "000000ed--9fbaeb1dea--11/rlog.zst",
@@ -276,13 +648,17 @@
       "vehicle_folder": "HYUNDAI_IONIQ_9 c92fab3f15c0dbfb",
       "log": "00000263--89012ce993--16/rlog.zst",
       "source": "front+corner",
-      "window": [20.95, 21.20],
+      "window": [21.25, 21.55],
       "expected": "detect",
       "human_verified": true,
       "validation_stage": "lead_two",
       "target_track_ids": [1039],
-      "latest_detection_s": 21.05,
-      "scene": "Vision-confirmed central stopped corner track 1039 must hand off from leadOne to closer leadTwo when farther front track 55 becomes leadOne"
+      "target_spatial_match": {
+        "d_rel": [36.0, 42.0],
+        "y_rel": [-0.5, 0.5]
+      },
+      "latest_detection_s": 21.35,
+      "scene": "After stationary confirmation, farther front track 55 exclusively owns leadOne while the continuous closer stopped corner hypothesis remains auxiliary leadTwo"
     },
     {
       "id": "ioniq5-352-5-overhead-sign-stationary-shadow-48",
@@ -389,6 +765,19 @@
       "scene": "A stationary white vehicle in the separated left-side parking row must not become CUT-IN leadTwo solely because ego closing speed and curve-relative corner-radar motion appear inward"
     },
     {
+      "id": "ioniq5-4ca-133-right-pickup-wheel-entry-16687",
+      "vehicle_folder": "HYUNDAI_IONIQ_5_PE 7f419ed56030e135",
+      "log": "000004ca--d57d548dd5--133/rlog.zst",
+      "source": "front+corner",
+      "window": [47.50, 48.45],
+      "expected": "detect",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [49, 16687],
+      "latest_detection_s": 48.00,
+      "scene": "The close right-side pickup has already placed its left wheel and body across the lane line even though corner track 16687 remains near the outer body reflection; paired close geometry must promote it early"
+    },
+    {
       "id": "ioniq5-4ca-133-right-pickup-close-cutin-49",
       "vehicle_folder": "HYUNDAI_IONIQ_5_PE 7f419ed56030e135",
       "log": "000004ca--d57d548dd5--133/rlog.zst",
@@ -473,10 +862,11 @@
       "expected": "detect",
       "human_verified": true,
       "validation_stage": "lead_one",
-      "target_track_ids": [1005],
-      "latest_detection_s": 27.22,
-      "lead_one_continuous_window": [27.21, 29.20],
-      "scene": "A selected stationary corner L1 and comma vision keep identifying the same far lead after the corner velocity becomes a bounded negative outlier; retain radar track 1005 and preserve L1 continuity"
+      "target_track_ids": [41],
+      "forbidden_lead_one_ids": [1005, 2175, 2190, 2198],
+      "latest_detection_s": 28.75,
+      "lead_one_continuous_window": [28.70, 29.20],
+      "scene": "Corner slots may track the distant hypothesis but cannot own leadOne; once central front track 41 becomes physically consistent it must acquire and continuously own L1"
     },
     {
       "id": "k5-224-11-weak-vision-front-stationary-ghost",
@@ -489,6 +879,32 @@
       "validation_stage": "lead_one",
       "target_track_ids": [34],
       "scene": "Empty road after a weak visual seed: offset stationary front-radar reflection 34 must release when current vision support disappears"
+    },
+    {
+      "id": "carnival-166-2-adjacent-vision-stationary-l1",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "00000166--a0a89dc8d2--2/rlog.zst",
+      "source": "front+corner",
+      "window": [12.70, 14.50],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [45],
+      "forbidden_lead_one_ids": [45],
+      "scene": "An adjacent visual lead and an opposite-side stationary front-radar reflection must not be associated as leadOne"
+    },
+    {
+      "id": "niro-63f-2-median-vision-stationary-l1",
+      "vehicle_folder": "KIA_NIRO_HEV_2ND_GEN c903ce877d9129f9",
+      "log": "0000063f--0131464865--2/rlog.zst",
+      "source": "front",
+      "window": [53.35, 55.35],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_one",
+      "target_track_ids": [37],
+      "forbidden_lead_one_ids": [37],
+      "scene": "A moving visual lead must not let the offset stationary center-divider reflection 37 become leadOne"
     },
     {
       "id": "palisade-bef-2-motorcycle-leadone",
@@ -655,11 +1071,11 @@
       "source": "corner",
       "window": [55.7, 59.0],
       "label_window": [55.75, 58.45],
-      "expected": "detect",
+      "expected": "clear",
       "human_verified": true,
       "target_track_ids": [52, 1024],
-      "latest_detection_s": 56.2,
-      "scene": "Very close white vehicle enters from the left; report early and keep the provisional control output softened"
+      "forbidden_lead_two_ids": [52, 1024, 3761],
+      "scene": "The very close white vehicle remains in the adjacent left lane throughout the review window; close paired reflections must not produce CUT-IN or leadTwo"
     },
     {
       "id": "ioniq5-cd0-1-merge",
@@ -774,7 +1190,7 @@
         "log": "00000216--f69e641982--4/rlog.zst",
         "source": "corner",
         "window": [0.0, 3.2],
-        "expected": "detect",
+        "expected": "clear",
         "human_verified": true,
         "forbidden_lead_two_ids": [48, 1010],
         "scene": "Early right adjacent vehicle stays outside the ego lane"
@@ -952,6 +1368,19 @@
         "scene": "Night front-radar candidate remains parallel outside the ego lane"
       },
     {
+      "id": "k5-285-15-front-only-parallel-right-59",
+      "vehicle_folder": "KIA_K5_2021 UnregisteredDevice",
+      "log": "00000285--8638f7001c--15/rlog.zst",
+      "source": "front",
+      "window": [39.0, 43.0],
+      "expected": "clear",
+      "human_verified": true,
+      "validation_stage": "lead_two",
+      "target_track_ids": [59],
+      "forbidden_lead_two_ids": [59],
+      "scene": "A right-lane car remains parallel while ego closes in slow nighttime traffic; an uncorroborated close front-radar centroid outside the physical path-overlap corridor must not become leadTwo"
+    },
+    {
       "id": "pv5-129-8-right-front-cutin",
       "vehicle_folder": "KIA_PV5 8ca0d3863b1b3c32",
       "log": "00000129--fc54fff840--8/rlog.zst",
@@ -1004,10 +1433,13 @@
       "vehicle_folder": "HYUNDAI_SANTAFE_MX5 d9ec903afdbac0bd",
       "log": "000002d3--74e5ed8754--6/rlog.zst",
       "source": "front+corner",
-      "window": [41.3, 43.3],
+      "window": [40.50, 43.30],
       "expected": "detect",
-      "target_track_ids": [52, 1018],
-      "scene": "Close left vehicle enters while a center lead remains active"
+      "human_verified": true,
+      "target_track_ids": [52, 1018, 1339],
+      "lead_two_continuous_window": [40.74, 42.58],
+      "latest_detection_s": 40.80,
+      "scene": "Close left vehicle must become continuous leadTwo as its wheel begins crossing; intermittent corner/front cross-matches must not erase its trajectory history"
     },
     {
       "id": "santafe-d3-6-adjacent-bus-51",
@@ -1127,8 +1559,8 @@
       "source": "front+corner",
       "window": [42.85, 43.10],
       "expected": "clear",
-      "required_lead_one_ids": [60, 61, 1012],
-      "scene": "Corner and front corroboration should acquire the slow vehicle near 85 m"
+      "forbidden_lead_one_ids": [60, 61, 1012, 1760],
+      "scene": "On the bend, front tracks 60/61 and corner track 1760 belong to the adjacent-right black car around y=7-8 m; curved-path projection alone must not acquire it as L1"
     },
     {
       "id": "palisade-c21-8-close-left-pass",
@@ -1139,6 +1571,17 @@
       "expected": "clear",
       "forbidden_lead_two_ids": [32],
       "scene": "Close left vehicle passes longitudinally without entering the ego lane"
+    },
+    {
+      "id": "palisade-c21-8-front-curve-projection-18",
+      "vehicle_folder": "HYUNDAI_PALISADE b84b4a4fbb604be1",
+      "log": "00000c21--f9485787d6--8/rlog.zst",
+      "source": "front+corner",
+      "window": [17.80, 18.60],
+      "expected": "clear",
+      "human_verified": true,
+      "forbidden_lead_two_ids": [51],
+      "scene": "Front-radar vehicle remains in the adjacent lane; model-path rotation creates apparent dPath motion while radar reports no physical inward motion"
     },
     {
       "id": "palisade-c21-8-right-cutin-31",
@@ -1218,15 +1661,16 @@
         "latest_detection_s": 38.0,
         "scene": "White vehicle merges left into the ego lane"
       },
-    {
-      "id": "gv80-218-2-adjacent-right-14",
+      {
+        "id": "gv80-218-2-adjacent-right-14",
       "vehicle_folder": "GENESIS_GV80 4857b2d26ed4648e",
       "log": "00000218--6aa147e461--2/rlog.zst",
       "source": "front+corner",
       "window": [13.7, 14.5],
-      "expected": "clear",
+      "expected": "detect",
+      "latest_detection_s": 14.5,
       "forbidden_lead_two_ids": [48, 1009],
-      "scene": "Black sedan remains in the right adjacent lane"
+      "scene": "Black sedan starts a sustained inward trajectory; report it early but do not promote it to leadTwo during this still-adjacent window"
     },
     {
       "id": "gv80-218-6-adjacent-right-36",
@@ -1322,9 +1766,10 @@
       "window": [15.5, 17.5],
       "expected": "detect",
       "human_verified": true,
-      "target_track_ids": [62, 1000],
+      "shadow_applicable": false,
+      "target_track_ids": [40, 60, 62, 1000, 1042],
       "latest_detection_s": 16.3,
-      "scene": "Dark SUV enters the ego lane from the left"
+      "scene": "Dark SUV enters the ego lane from the left, but before the 16.3 s deadline comma vision follows a different far object and corner track 1042 supplies only one invalid near-zero-range sample; front tracks 40/60 appear after 16.85 s with no continuous inward history, so this remains a human-visible but physical-sensor-unobservable regression"
     },
     {
       "id": "azera-cf-15-straight-ahead-7",
@@ -1332,7 +1777,7 @@
       "log": "000000cf--04b9851018--15/rlog.zst",
       "source": "front+corner",
       "window": [6.5, 8.3],
-      "expected": "detect",
+      "expected": "clear",
       "human_verified": true,
       "forbidden_lead_two_ids": [58, 1005],
       "scene": "Vehicle ahead continues in its lane without cutting in"
@@ -1350,6 +1795,17 @@
       "scene": "Black sedan remains in the adjacent left lane while a small quantized inward shift briefly touches the lane-boundary straddle gate"
     },
     {
+      "id": "santafe-4f6-19-centerline-fast-pass-39",
+      "vehicle_folder": "HYUNDAI_SANTAFE_MX5_HEV 61d2c91e1039ab5e",
+      "log": "000004f6--33e8c8595d--19/rlog.zst",
+      "source": "front+corner",
+      "window": [38.70, 39.30],
+      "expected": "clear",
+      "human_verified": true,
+      "forbidden_lead_two_ids": [2606],
+      "scene": "Oncoming centerline vehicle passes the bumper in under 0.8 s; a brief corner/front body pair is not a sustained cut-in trajectory"
+    },
+    {
       "id": "carnival-14a-20-turn-parked-left-22",
       "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
       "log": "0000014a--26d45431d5--20/rlog.zst",
@@ -1359,6 +1815,28 @@
       "human_verified": true,
       "forbidden_lead_one_ids": [2734],
       "scene": "A parked truck on the left sweeps across the curved model path while the ego vehicle makes a tight left turn"
+    },
+    {
+      "id": "carnival-14a-20-centerline-curve-projection-25",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000014a--26d45431d5--20/rlog.zst",
+      "source": "front+corner",
+      "window": [24.70, 25.60],
+      "expected": "clear",
+      "human_verified": true,
+      "forbidden_lead_two_ids": [2740],
+      "scene": "Centerline-side vehicle stays over 5 m from the ego body while a left-turn model path sweeps under it without physical inward radar motion"
+    },
+    {
+      "id": "carnival-14c-5-left-turn-adjacent-left-2",
+      "vehicle_folder": "KIA_CARNIVAL_4TH_GEN c4dcf95545dafe68",
+      "log": "0000014c--96eee11a8d--5/rlog.zst",
+      "source": "front+corner",
+      "window": [2.20, 3.40],
+      "expected": "clear",
+      "human_verified": true,
+      "forbidden_lead_two_ids": [1479],
+      "scene": "During a left turn, the adjacent-left vehicle has only weak reported inward motion and must not be promoted by an outer-body corner/front pair"
     },
     {
       "id": "carnival-14c-5-tight-curve-adjacent-right-9",
@@ -1371,6 +1849,17 @@
       "forbidden_lead_one_ids": [1448, 1510],
       "forbidden_lead_two_ids": [1448, 1510],
       "scene": "A moving vehicle remains far to the right while a tight left curve projects its corner-radar track onto the model path"
+    },
+    {
+      "id": "ioniq9-1c9-2-center-stationary-reflection-23",
+      "vehicle_folder": "HYUNDAI_IONIQ_9 7a9a8e68022c1881",
+      "log": "000001c9--dc79b098bb--2/rlog.zst",
+      "source": "front",
+      "window": [22.70, 23.45],
+      "expected": "clear",
+      "human_verified": true,
+      "forbidden_lead_one_ids": [35],
+      "scene": "A centered stationary road reflection becomes a tentative moving front-radar track near the bumper and must not replace the far vision-matched leadOne through the closer-challenger path"
     }
   ]
 }
