@@ -5,6 +5,7 @@ import usb1
 import time
 import signal
 import subprocess
+from itertools import accumulate
 
 from panda import Panda, PandaDFU, PandaProtocolMismatch, McuType, FW_PATH
 from openpilot.common.basedir import BASEDIR
@@ -19,6 +20,85 @@ def get_expected_signature(panda) -> bytes:
   fn = os.path.join(FW_PATH, panda.mcu_type.config.app_fn)
   return Panda.get_signature_from_firmware(fn)
 
+
+def wait_for_panda_serial(serial: str, timeout: float = 30.0) -> bool:
+  t0 = time.monotonic()
+  while time.monotonic() - t0 < timeout:
+    try:
+      if serial in Panda.list():
+        return True
+    except Exception:
+      pass
+    time.sleep(0.5)
+  return False
+
+
+def flash_internal_dos(panda_serial: str):
+  """C3XL-specific full reflash of the internal DOS panda.
+
+  The DOS panda is soldered onto the mainboard and connected to the SoC over
+  USB only (there is no SPI connection). Its firmware does not respond to the
+  USB 0xd1 "enter bootloader" vendor command (it returns STALL), so neither
+  the normal flasher path (panda.flash) nor the USB DFU recover path works.
+
+  The only reliable way to reflash it is:
+    1. GPIO: hold BOOT0 and reset -> ST ROM bootloader enumerates as 0483:df11
+    2. DFU:  erase and write bootstub + app over the ST bootloader
+    3. GPIO: release BOOT0 and reset -> boot the app from flash
+  """
+  f4 = McuType.F4.config
+
+  # 1. enter DFU by holding BOOT0 and resetting
+  cloudlog.info("C3XL DOS panda: entering ROM bootloader (DFU) via GPIO")
+  HARDWARE.recover_internal_panda()
+  dfu_serials: list[str] = []
+  t0 = time.monotonic()
+  while time.monotonic() - t0 < 30:
+    try:
+      dfu_serials = PandaDFU.list()
+    except Exception:
+      dfu_serials = []
+    if dfu_serials:
+      break
+    time.sleep(0.5)
+  if not dfu_serials:
+    raise Exception("C3XL DOS panda: did not enter DFU after GPIO recover")
+
+  # 2. full reflash over DFU
+  dfu = PandaDFU(dfu_serials[0])
+  handle = dfu._handle
+  try:
+    handle.clear_status()
+
+    with open(os.path.join(FW_PATH, f4.bootstub_fn), "rb") as f:
+      bootstub_code = f.read()
+    with open(os.path.join(FW_PATH, f4.app_fn), "rb") as f:
+      app_code = f.read()
+
+    # bootstub lives in sector 0; app starts at sector 1. Compute how many
+    # sectors the app spans and erase 0..last_sector (leaves the provisioning
+    # chunk in the top sector untouched).
+    apps_sectors_cumsum = list(accumulate(f4.sector_sizes[1:]))
+    last_sector = next((i + 1 for i, v in enumerate(apps_sectors_cumsum) if v > len(app_code)), None)
+    if last_sector is None or last_sector < 1:
+      raise Exception(f"C3XL DOS panda: bad app size {len(app_code)}")
+    if last_sector >= 7:
+      raise Exception(f"C3XL DOS panda: app too large ({len(app_code)} bytes)")
+
+    for i in range(0, last_sector + 1):
+      handle.erase_sector(i)
+
+    cloudlog.info(f"C3XL DOS panda: writing bootstub ({len(bootstub_code)} bytes) + app ({len(app_code)} bytes)")
+    handle.program(f4.bootstub_address, bootstub_code)
+    handle.program(f4.app_address, app_code)
+  finally:
+    dfu.close()
+
+  # 3. boot from flash
+  cloudlog.info("C3XL DOS panda: reflashed, resetting to boot app")
+  HARDWARE.reset_internal_panda()
+
+
 def flash_panda(panda_serial: str):
   panda = Panda(panda_serial)
 
@@ -29,6 +109,7 @@ def flash_panda(panda_serial: str):
     return
 
   fw_signature = get_expected_signature(panda)
+  hw_type = panda.get_type()
   internal_panda = panda.is_internal()
 
   panda_version = "bootstub" if panda.bootstub else panda.get_version()
@@ -37,13 +118,26 @@ def flash_panda(panda_serial: str):
 
   if panda.bootstub or panda_signature != fw_signature:
     cloudlog.info("Panda firmware out of date, update required")
-    try:
-      panda.flash()
-    except Exception:
-      cloudlog.exception("flasher-based flash failed, falling back to DFU recover")
+    panda.close()
+    if internal_panda and hw_type == Panda.HW_TYPE_DOS:
+      # C3XL: internal DOS panda (USB-only, no SPI). Its firmware does not
+      # respond to the USB 0xd1 bootloader command (STALL), so reflash the
+      # full image over the ST ROM bootloader reached via GPIO BOOT0.
+      flash_internal_dos(panda_serial)
+    else:
       panda = Panda(panda_serial)
-      panda.recover(reset=(not internal_panda))
+      try:
+        panda.flash()
+      except Exception:
+        cloudlog.exception("flasher-based flash failed, falling back to DFU recover")
+        panda = Panda(panda_serial)
+        panda.recover(reset=(not internal_panda))
     cloudlog.info("Done flashing")
+
+  # wait for the panda to re-enumerate and connect after flashing
+  if not wait_for_panda_serial(panda_serial, timeout=30):
+    raise Exception("panda did not come back after flashing")
+  panda = Panda(panda_serial)
 
   if panda.bootstub:
     bootstub_version = panda.get_version()
