@@ -511,6 +511,7 @@ void main(void) {
   pcie_power_on();
 
   // Bring USB up. force_usb2=0: try SS first, fall back via LINK_EVENT.
+  sleep(10000);
   usb_init_controller(0);
 
   // enable interrupts
