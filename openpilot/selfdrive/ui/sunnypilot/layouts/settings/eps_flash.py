@@ -61,8 +61,8 @@ class EPSFlashLayout(Widget):
     )
 
     self._eps_info_item = button_item_sp(
-      lambda: tr("EPS Info"),
-      lambda: self._eps_info_label(),
+      lambda: tr("EPS Info") + " · " + self._eps_info_label(),
+      lambda: self._eps_info_button(),
       lambda: self._eps_info_description(),
       callback=self._read_eps,
       enabled=self._can_read_eps,
@@ -186,6 +186,14 @@ class EPSFlashLayout(Widget):
 
   def _can_read_eps(self) -> bool:
     return ui_state.is_offroad() and not self._is_running() and self._has_panda_lock()
+
+  def _eps_info_button(self) -> str:
+    self._refresh_status()
+    if self._is_running() and self._status.get("action") == "identify":
+      return tr("READING")
+    if self._status.get("eps_read_at"):
+      return tr("RE-READ")
+    return tr("READ")
 
   def _eps_info_label(self) -> str:
     self._refresh_status()
