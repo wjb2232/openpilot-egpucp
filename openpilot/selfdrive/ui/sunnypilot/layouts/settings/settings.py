@@ -15,6 +15,7 @@ from openpilot.selfdrive.ui.sunnypilot.layouts.settings.cruise import CruiseLayo
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.developer import DeveloperLayoutSP
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.device import DeviceLayoutSP
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.display import DisplayLayout
+from openpilot.selfdrive.ui.sunnypilot.layouts.settings.eps_flash import EPSFlashLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.models import ModelsLayout
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.network import NetworkUISP
 from openpilot.selfdrive.ui.sunnypilot.layouts.settings.osm import OSMLayout
@@ -43,6 +44,7 @@ OP.PanelType = IntEnum(  # type: ignore[assignment] # ty: ignore[invalid-assignm
     "SUNNYLINK",
     "MODELS",
     "STEERING",
+    "EPS_FLASH",
     "CRUISE",
     "VISUALS",
     "DISPLAY",
@@ -117,6 +119,7 @@ class SettingsLayoutSP(OP.SettingsLayout):
       OP.PanelType.SOFTWARE: PanelInfo(tr_noop("Software"), SoftwareLayoutSP(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_software.png"),
       OP.PanelType.MODELS: PanelInfo(tr_noop("Models"), ModelsLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_models.png"),
       OP.PanelType.STEERING: PanelInfo(tr_noop("Steering"), SteeringLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_lateral.png"),
+      OP.PanelType.EPS_FLASH: PanelInfo(tr_noop("EPS Flash"), EPSFlashLayout(), icon="icons/shell.png"),
       OP.PanelType.CRUISE: PanelInfo(tr_noop("Cruise"), CruiseLayout(), icon="icons/speed_limit.png"),
       OP.PanelType.VISUALS: PanelInfo(tr_noop("Visuals"), VisualsLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_visuals.png"),
       OP.PanelType.DISPLAY: PanelInfo(tr_noop("Display"), DisplayLayout(), icon="../../sunnypilot/selfdrive/assets/offroad/icon_display.png"),
