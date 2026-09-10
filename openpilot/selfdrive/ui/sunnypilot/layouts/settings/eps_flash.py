@@ -60,6 +60,14 @@ class EPSFlashLayout(Widget):
       enabled=self._can_release,
     )
 
+    self._eps_info_item = button_item_sp(
+      lambda: tr("EPS Info"),
+      lambda: self._eps_info_label(),
+      lambda: self._eps_info_description(),
+      callback=self._read_eps,
+      enabled=self._can_read_eps,
+    )
+
     self._restore_item = button_item_sp(
       lambda: tr("Panda USB"),
       lambda: tr("RESTORE"),
@@ -89,6 +97,8 @@ class EPSFlashLayout(Widget):
       self._status_item,
       LineSeparatorSP(40),
       self._release_item,
+      LineSeparatorSP(40),
+      self._eps_info_item,
       LineSeparatorSP(40),
       self._restore_item,
       LineSeparatorSP(40),
@@ -173,6 +183,37 @@ class EPSFlashLayout(Widget):
 
   def _can_restore(self) -> bool:
     return not self._is_running() and self._has_panda_lock()
+
+  def _can_read_eps(self) -> bool:
+    return ui_state.is_offroad() and not self._is_running() and self._has_panda_lock()
+
+  def _eps_info_label(self) -> str:
+    self._refresh_status()
+    if self._is_running() and self._status.get("action") == "identify":
+      return tr("READING")
+    if self._status.get("eps_read_at"):
+      return tr("ONLINE") if self._status.get("eps_online") else tr("NOT FOUND")
+    return tr("NOT READ")
+
+  def _eps_info_description(self) -> str:
+    self._refresh_status()
+    if not self._has_panda_lock():
+      return tr("Release Panda first, then press READ to query EPS software ID and VIN.")
+    if self._is_running() and self._status.get("action") == "identify":
+      return tr("Reading EPS software ID and VIN...")
+    if not self._status.get("eps_read_at"):
+      return tr("Panda is released. Press READ to query EPS.")
+    if not self._status.get("eps_online"):
+      return tr("No EPS response was received.")
+    parts = [tr("Bus: {}").format(self._status.get("eps_bus"))]
+    if self._status.get("eps_part_number"):
+      parts.append(tr("Part: {}").format(self._status.get("eps_part_number")))
+    if self._status.get("eps_vin"):
+      parts.append(tr("VIN: {}").format(self._status.get("eps_vin")))
+    return " · ".join(parts)
+
+  def _read_eps(self):
+    self._start_action("identify")
 
   def _can_flash(self) -> bool:
     return (ui_state.is_offroad() and not self._is_running() and self._has_panda_lock() and

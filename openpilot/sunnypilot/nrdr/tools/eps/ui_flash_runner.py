@@ -173,20 +173,27 @@ def _image_matches_car(image: Path) -> bool:
   return flash.norm_fw(car_fw) in versions
 
 
-def _read_live_eps_part_number() -> str | None:
+def _read_live_eps_info() -> dict:
+  info = {
+    "eps_online": False,
+    "eps_bus": None,
+    "eps_part_number": None,
+    "eps_vin": None,
+    "eps_read_at": time.time(),
+  }
   try:
     from panda import Panda
     from opendbc.car.structs import CarParams
     from opendbc.car.uds import DATA_IDENTIFIER_TYPE, SESSION_TYPE, UdsClient, NegativeResponseError
   except Exception as exc:
     _log(f"Live EPS identify unavailable: {exc}")
-    return None
+    return info
 
   panda = None
   try:
     panda = Panda(disable_checks=True)
     panda.set_safety_mode(CarParams.SafetyModel.elm327)
-    for bus in (0, 1):
+    for bus in (1, 0):
       uds = UdsClient(panda, flash.EPS_ADDR, bus=bus, timeout=2.0)
       try:
         uds.tester_present()
@@ -194,24 +201,40 @@ def _read_live_eps_part_number() -> str | None:
         pass
       except Exception:
         continue
+
+      info["eps_online"] = True
+      info["eps_bus"] = bus
+      _log(f"EPS responded on bus {bus}")
+
       try:
         uds.diagnostic_session_control(SESSION_TYPE.DEFAULT)
       except Exception:
         pass
+
       try:
         data = uds.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
         part_number = bytes(data).decode("latin-1", "replace").strip("\x00").strip()
         if part_number:
+          info["eps_part_number"] = part_number
           _log(f"Live EPS part number: {part_number}")
-          return part_number
+      except Exception as exc:
+        _log(f"EPS part number read failed on bus {bus}: {exc}")
+
+      try:
+        data = uds.read_data_by_identifier(DATA_IDENTIFIER_TYPE.VIN)
+        vin = bytes(data).decode("latin-1", "replace").strip("\x00").strip()
+        if vin:
+          info["eps_vin"] = vin
+          _log(f"EPS VIN: {vin}")
       except Exception:
-        continue
+        pass
+      break
   except Exception as exc:
     _log(f"Live EPS identify failed: {exc}")
   finally:
     if panda is not None:
       panda.close()
-  return None
+  return info
 
 
 def _resolve_bus(requested: str, image: Path, state: dict) -> int:
@@ -267,10 +290,14 @@ def _release_panda(state: dict, args: argparse.Namespace) -> int:
       _set_block_pandad(False)
       raise RuntimeError("pandad did not exit; Panda was not released")
     time.sleep(args.release_delay)
-    detected_fw = _read_live_eps_part_number()
-    message = "Panda released; ready for EPS flash" if detected_fw else \
-              "Panda released; no EPS part number received"
-    _write_status(state, detected_fw=detected_fw, state="success", phase="panda_released", message=message)
+    eps_info = _read_live_eps_info()
+    detected_fw = eps_info.get("eps_part_number")
+    if detected_fw:
+      message = f"Panda released; EPS {detected_fw} on bus {eps_info.get('eps_bus')}"
+    else:
+      message = "Panda released; EPS did not respond"
+    _write_status(state, detected_fw=detected_fw, state="success", phase="panda_released", **eps_info)
+    _write_status(state, message=message)
     _log("Panda released")
     return 0
   except Exception as exc:
@@ -286,6 +313,24 @@ def _restore_panda(state: dict, args: argparse.Namespace) -> int:
       raise RuntimeError("pandad did not restart before timeout")
     _write_status(state, state="success", phase="panda_restored", message="pandad restored")
     _log("pandad restored")
+    return 0
+  except Exception as exc:
+    return _failed(state, exc)
+
+
+def _identify_eps(state: dict, args: argparse.Namespace) -> int:
+  try:
+    if not _vehicle_is_offroad():
+      raise RuntimeError("Vehicle must be offroad before reading EPS")
+    if not PANDAD_BLOCK_FILE.exists():
+      raise RuntimeError("Release Panda first")
+    if not _wait_for_pandad(absent=True, timeout=args.release_timeout):
+      raise RuntimeError("pandad is still running")
+    _write_status(state, phase="identify", message="Reading EPS software ID and VIN")
+    eps_info = _read_live_eps_info()
+    detected_fw = eps_info.get("eps_part_number")
+    message = f"EPS {detected_fw} on bus {eps_info.get('eps_bus')}" if detected_fw else "No EPS part number received"
+    _write_status(state, detected_fw=detected_fw, state="success", phase="eps_identified", message=message, **eps_info)
     return 0
   except Exception as exc:
     return _failed(state, exc)
@@ -349,11 +394,13 @@ def run(args: argparse.Namespace) -> int:
     return _release_panda(state, args)
   if args.action == "restore":
     return _restore_panda(state, args)
+  if args.action == "identify":
+    return _identify_eps(state, args)
   return _flash_panda(state, args, image)
 
 def main() -> int:
   parser = argparse.ArgumentParser(description="UI-owned Honda/Acura EPS helper")
-  parser.add_argument("--action", choices=("release", "restore", "flash"), default="flash")
+  parser.add_argument("--action", choices=("release", "restore", "identify", "flash"), default="flash")
   parser.add_argument("--rwd", help="Curated .rwd path or path relative to eps/")
   parser.add_argument("--bus", default="auto", help="auto, 0, or 1")
   parser.add_argument("--seed-timeout", type=float, default=600.0, help="Security-access seed wait in seconds")
