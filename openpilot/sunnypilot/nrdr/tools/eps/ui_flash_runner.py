@@ -70,10 +70,13 @@ def _write_status(record: dict, **updates) -> None:
 def _vehicle_is_offroad() -> bool:
   messaging.reset_context()
   sm = messaging.SubMaster(["deviceState"])
-  sm.update(2000)
-  if not sm.all_checks(["deviceState"]):
-    return False
-  return not sm["deviceState"].started
+  # A fresh SubMaster can need a few cycles before deviceState is valid. Poll
+  # instead of treating one unlucky timeout as an onroad state.
+  for _ in range(20):
+    sm.update(250)
+    if sm.all_checks(["deviceState"]):
+      return not sm["deviceState"].started
+  return False
 
 
 def _pandad_pids() -> list[int]:
@@ -82,11 +85,11 @@ def _pandad_pids() -> list[int]:
     if not entry.name.isdigit():
       continue
     try:
-      cmdline = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+      raw_tokens = [t for t in (entry / "cmdline").read_bytes().split(b"\0") if t]
     except (OSError, PermissionError):
       continue
-    lowered = cmdline.lower()
-    if "openpilot.selfdrive.pandad.pandad" in lowered or lowered.startswith("./pandad ") or lowered.endswith("/pandad"):
+    if any(token == b"openpilot.selfdrive.pandad.pandad" for token in raw_tokens) or \
+       any(Path(os.fsdecode(token)).name == "pandad" for token in raw_tokens):
       pids.append(int(entry.name))
   return sorted(pids)
 
