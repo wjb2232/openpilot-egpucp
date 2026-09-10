@@ -130,7 +130,8 @@ class EPSFlashLayout(Widget):
       return
     self._last_match_poll = now
 
-    car_fw = flash.car_eps_fw()
+    self._refresh_status()
+    car_fw = flash.car_eps_fw() or self._status.get("detected_fw")
     car_norm = flash.norm_fw(car_fw) if car_fw else None
     matched: list[Path] = []
     if car_norm:

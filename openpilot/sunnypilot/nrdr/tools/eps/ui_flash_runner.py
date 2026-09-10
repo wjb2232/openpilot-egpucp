@@ -154,9 +154,55 @@ def _validated_image(raw_path: str) -> Path:
 def _image_matches_car(image: Path) -> bool:
   car_fw = flash.car_eps_fw()
   if not car_fw:
+    try:
+      car_fw = json.loads(STATUS_PATH.read_text(encoding="utf-8")).get("detected_fw")
+    except (OSError, ValueError, TypeError):
+      car_fw = None
+  if not car_fw:
     return False
   versions = flash.rwd_supported_versions(str(image)) or set()
   return flash.norm_fw(car_fw) in versions
+
+
+def _read_live_eps_part_number() -> str | None:
+  try:
+    from panda import Panda
+    from opendbc.car.structs import CarParams
+    from opendbc.car.uds import DATA_IDENTIFIER_TYPE, SESSION_TYPE, UdsClient, NegativeResponseError
+  except Exception as exc:
+    _log(f"Live EPS identify unavailable: {exc}")
+    return None
+
+  panda = None
+  try:
+    panda = Panda(disable_checks=True)
+    panda.set_safety_mode(CarParams.SafetyModel.elm327)
+    for bus in (0, 1):
+      uds = UdsClient(panda, flash.EPS_ADDR, bus=bus, timeout=2.0)
+      try:
+        uds.tester_present()
+      except NegativeResponseError:
+        pass
+      except Exception:
+        continue
+      try:
+        uds.diagnostic_session_control(SESSION_TYPE.DEFAULT)
+      except Exception:
+        pass
+      try:
+        data = uds.read_data_by_identifier(DATA_IDENTIFIER_TYPE.APPLICATION_SOFTWARE_IDENTIFICATION)
+        part_number = bytes(data).decode("latin-1", "replace").strip("\x00").strip()
+        if part_number:
+          _log(f"Live EPS part number: {part_number}")
+          return part_number
+      except Exception:
+        continue
+  except Exception as exc:
+    _log(f"Live EPS identify failed: {exc}")
+  finally:
+    if panda is not None:
+      panda.close()
+  return None
 
 
 def _resolve_bus(requested: str, image: Path, state: dict) -> int:
@@ -211,7 +257,10 @@ def _release_panda(state: dict, args: argparse.Namespace) -> int:
       _set_block_pandad(False)
       raise RuntimeError("pandad did not exit; Panda was not released")
     time.sleep(args.release_delay)
-    _write_status(state, state="success", phase="panda_released", message="Panda released; ready for EPS flash")
+    detected_fw = _read_live_eps_part_number()
+    message = "Panda released; ready for EPS flash" if detected_fw else \
+              "Panda released; no EPS part number received"
+    _write_status(state, detected_fw=detected_fw, state="success", phase="panda_released", message=message)
     _log("Panda released")
     return 0
   except Exception as exc:
