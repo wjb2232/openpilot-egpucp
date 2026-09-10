@@ -11,9 +11,10 @@ import numpy as np
 
 from openpilot.cereal import custom
 from openpilot.common.params import Params
+from openpilot.common.file_chunker import get_manifest_path
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.hardware.hw import Paths
-from openpilot.selfdrive.modeld.helpers import chestnut_present
+from openpilot.selfdrive.modeld.helpers import chestnut_present, modeld_pkl_path
 
 # SET ME TO THE EXACT JSON VERSION WE SET IN SUNNYPILOT_MODELS REPO
 REQUIRED_JSON_VERSION = 19
@@ -131,11 +132,45 @@ def get_active_source(chestnut: bool | None = None, chestnut_active: bool | None
   return "chestnut" if big_active else "qcom"
 
 
+def _bundled_default_bundle() -> "custom.ModelManagerSP.ModelBundle | None":
+  pkl_path = str(modeld_pkl_path(False))
+  if not (os.path.isfile(pkl_path) or os.path.isfile(get_manifest_path(pkl_path))):
+    return None
+
+  bundle = custom.ModelManagerSP.ModelBundle()
+  bundle.index = 52
+  bundle.internalName = "C210M"
+  bundle.displayName = "CD210 Model (Bundled)"
+  bundle.status = custom.ModelManagerSP.DownloadStatus.downloaded
+  bundle.generation = 12
+  bundle.environment = "bundled"
+  bundle.runner = custom.ModelManagerSP.Runner.tinygrad
+  bundle.is20hz = True
+  bundle.minimumSelectorVersion = REQUIRED_JSON_VERSION
+  bundle.ref = "bundled-cd210"
+
+  for key, value in (("folder", "Release Models"), ("lat", ".0"), ("long", ".3")):
+    override = custom.ModelManagerSP.Override()
+    override.key = key
+    override.value = value
+    bundle.overrides = [*bundle.overrides, override]
+
+  model = custom.ModelManagerSP.Model()
+  model.type = "chunked"
+  model.artifact = custom.ModelManagerSP.Artifact()
+  model.artifact.fileName = pkl_path
+  bundle.models = [model]
+  return bundle
+
+
 def get_active_bundle(params: Params | None = None, *, chestnut: bool | None = None) -> "custom.ModelManagerSP.ModelBundle | None":
-  # no cross-slot fallback: an empty active slot means the hardware default, which
-  # only stock modeld can run - modeld_v2 requires a real bundle
   params = params or Params()
-  return get_selected_bundle(params, get_active_source(chestnut=chestnut))
+  source = get_active_source(chestnut=chestnut)
+  if bundle := get_selected_bundle(params, source):
+    return bundle
+  if source == "qcom":
+    return _bundled_default_bundle()
+  return None
 
 
 def resolve_bundle_by_ref(
