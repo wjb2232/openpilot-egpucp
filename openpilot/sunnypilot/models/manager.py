@@ -31,6 +31,16 @@ class DownloadCancelled(Exception):
 class ModelManagerSP:
   """Manages model downloads and status reporting"""
 
+  HF_MIRROR = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
+
+  @classmethod
+  def download_urls(cls, url: str) -> tuple[str, ...]:
+    """Prefer the Hugging Face mirror, then fall back to the original URL."""
+    if url.startswith("https://huggingface.co/"):
+      mirror = cls.HF_MIRROR + url[len("https://huggingface.co"):]
+      return (mirror, url)
+    return (url,)
+
   def __init__(self):
     self.params = Params()
     self.model_fetcher = ModelFetcher(self.params)
@@ -82,32 +92,45 @@ class ModelManagerSP:
     return max(1, int(eta))  # Return at least 1 second if download is ongoing
 
   async def _download_file(self, url: str, path: str, model) -> None:
-    """Downloads a file with progress tracking"""
+    """Downloads a file with progress tracking and mirror fallback"""
     self._download_start_times[model.fileName] = time.monotonic()
+    last_error = None
 
-    with requests.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT) as response:  # noqa: ASYNC210
-      response.raise_for_status()
-      total_size = int(response.headers.get("content-length", 0))
-      bytes_downloaded = 0
+    for candidate_url in self.download_urls(url):
+      try:
+        with requests.get(candidate_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as response:  # noqa: ASYNC210
+          response.raise_for_status()
+          total_size = int(response.headers.get("content-length", 0))
+          bytes_downloaded = 0
 
-      with open(path, 'wb') as f:  # noqa: ASYNC230
-        for chunk in response.iter_content(chunk_size=self._chunk_size):  # type: bytes
-          f.write(chunk)
-          bytes_downloaded += len(chunk)
+          with open(path, 'wb') as f:  # noqa: ASYNC230
+            for chunk in response.iter_content(chunk_size=self._chunk_size):  # type: bytes
+              f.write(chunk)
+              bytes_downloaded += len(chunk)
 
-          if self._download_interrupted():
-            raise DownloadCancelled("Download cancelled")
+              if self._download_interrupted():
+                raise DownloadCancelled("Download cancelled")
 
-          if total_size > 0:
-            progress = (bytes_downloaded / total_size) * 100
-            model.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.downloading
-            model.downloadProgress.progress = progress
-            model.downloadProgress.eta = self._calculate_eta(model.fileName, progress)
-            self._sync_artifact_progress(model)
-            self._report_status()
+              if total_size > 0:
+                progress = (bytes_downloaded / total_size) * 100
+                model.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.downloading
+                model.downloadProgress.progress = progress
+                model.downloadProgress.eta = self._calculate_eta(model.fileName, progress)
+                self._sync_artifact_progress(model)
+                self._report_status()
 
-    # Clean up start time after download completes
-    del self._download_start_times[model.fileName]
+        self._download_start_times.pop(model.fileName, None)
+        return
+      except DownloadCancelled:
+        self._download_start_times.pop(model.fileName, None)
+        raise
+      except Exception as exc:
+        last_error = exc
+        cloudlog.warning(f"Model download failed via {candidate_url}: {exc}")
+
+    self._download_start_times.pop(model.fileName, None)
+    if last_error is not None:
+      raise last_error
 
   async def _download_chunked(self, base_url: str, base_path: str, artifact, skip: frozenset[int] | set[int] = frozenset()) -> None:
     from openpilot.common.file_chunker import get_chunk_name, get_manifest_path
@@ -128,23 +151,35 @@ class ModelManagerSP:
           continue
         chunk_url = get_chunk_name(base_url, i, num_chunks)
         chunk_path = get_chunk_name(base_path, i, num_chunks)
-        chunk_downloaded = 0
-        with session.get(chunk_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as response:
-          response.raise_for_status()
-          chunk_size = int(response.headers.get("content-length", 0))
-          with open(chunk_path, 'wb') as f:  # noqa: ASYNC230
-            for data in response.iter_content(chunk_size=self._chunk_size):
-              f.write(data)
-              chunk_downloaded += len(data)
-              if self._download_interrupted():
-                raise DownloadCancelled("Download cancelled")
-              intra = chunk_downloaded / max(chunk_size, 1)
-              progress = min(99.0, ((completed + intra) / num_chunks) * 100)
-              artifact.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.downloading
-              artifact.downloadProgress.progress = progress
-              artifact.downloadProgress.eta = self._calculate_eta(artifact.fileName, progress)
-              self._sync_artifact_progress(artifact)
-              self._report_status()
+        chunk_error = None
+        for candidate_url in self.download_urls(chunk_url):
+          try:
+            chunk_downloaded = 0
+            with session.get(candidate_url, stream=True, timeout=DOWNLOAD_TIMEOUT) as response:
+              response.raise_for_status()
+              chunk_size = int(response.headers.get("content-length", 0))
+              with open(chunk_path, 'wb') as f:  # noqa: ASYNC230
+                for data in response.iter_content(chunk_size=self._chunk_size):
+                  f.write(data)
+                  chunk_downloaded += len(data)
+                  if self._download_interrupted():
+                    raise DownloadCancelled("Download cancelled")
+                  intra = chunk_downloaded / max(chunk_size, 1)
+                  progress = min(99.0, ((completed + intra) / num_chunks) * 100)
+                  artifact.downloadProgress.status = custom.ModelManagerSP.DownloadStatus.downloading
+                  artifact.downloadProgress.progress = progress
+                  artifact.downloadProgress.eta = self._calculate_eta(artifact.fileName, progress)
+                  self._sync_artifact_progress(artifact)
+                  self._report_status()
+            chunk_error = None
+            break
+          except DownloadCancelled:
+            raise
+          except Exception as exc:
+            chunk_error = exc
+            cloudlog.warning(f"Model chunk download failed via {candidate_url}: {exc}")
+        if chunk_error is not None:
+          raise chunk_error
         completed += 1
 
     with open(manifest_path, 'w') as f:  # noqa: ASYNC230
