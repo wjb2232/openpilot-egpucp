@@ -45,6 +45,11 @@ PILOT_CHECKSUM_ENDS = (0xa000, 0x1d000, 0x4ff00)
 def auto_int(i):
   return int(i, 0)
 
+def emit_progress(phase: str, percent: float) -> None:
+  value = max(0, min(100, int(round(percent))))
+  print(f"PROGRESS {phase} {value}", flush=True)
+
+
 def read_file(fn):
   f_name, f_ext = os.path.splitext(fn)
   open_fn = open
@@ -207,6 +212,7 @@ if __name__ == "__main__":
   fw = x5a(read_file(args.rwd))
   if not args.skip_checksum:
     validate_fw(fw)
+  emit_progress("validated", 0)
 
   print(fw)
 
@@ -254,14 +260,17 @@ if __name__ == "__main__":
       raise RuntimeError('Safe mode: aborting before mutating actions')
 
     print("Erasing flash")
+    emit_progress("erase", 0)
     data = uds_client.routine_control(ROUTINE_CONTROL_TYPE.START, ROUTINE_IDENTIFIER_TYPE.ERASE_MEMORY)
     debug_output = debug_output + [data]
+    emit_progress("erase", 10)
 
     print("Setting firmware decryption key")
     data = uds_client.write_data_by_identifier(FLASH_DECRYPTION_KEY, fw.keys)
     debug_output = debug_output + [data]
 
     print("Requesting download")
+    emit_progress("program", 10)
     assert len(fw.firmware_blocks) == 1
     block = fw.firmware_blocks[0]
     length = block["length"]
@@ -271,6 +280,7 @@ if __name__ == "__main__":
     with tqdm.tqdm(total=length, unit='B', unit_scale=True) as t:
       cursor = 0x0
       seq = 1
+      last_progress = -1
       while cursor < length:
         block_size = min(max_chunk_size, length - cursor)
         data = uds_client.transfer_data(seq, fw.firmware_encrypted[0][cursor:cursor+block_size])
@@ -278,18 +288,25 @@ if __name__ == "__main__":
         seq = (seq + 1) & 0xFF
         cursor += block_size
         t.update(block_size)
+        percent = 10 + (cursor / length) * 85
+        if int(percent) >= last_progress + 2 or cursor >= length:
+          emit_progress("program", percent)
+          last_progress = int(percent)
 
     print("Requesting transfer exit")
+    emit_progress("verify", 95)
     data = uds_client.request_transfer_exit()
     debug_output = debug_output + [data]
 
     print("Checking programming dependencies")
     data = uds_client.routine_control(ROUTINE_CONTROL_TYPE.START, ROUTINE_IDENTIFIER_TYPE.CHECK_PROGRAMMING_DEPENDENCIES)
     debug_output = debug_output + [data]
+    emit_progress("reset", 99)
 
     print("Resetting ECU")
     data = uds_client.ecu_reset(RESET_TYPE.HARD)
     debug_output = debug_output + [data]
+    emit_progress("complete", 100)
 
   except Exception as e:
     print(traceback.format_exc())

@@ -132,7 +132,16 @@ def _run_streamed(state: dict, command: list[str], env: dict[str, str], phase: s
     lines.append(raw)
     if line.strip():
       _log(line)
-      _write_status(state, phase=phase, message=line.strip()[-240:])
+      if line.startswith("PROGRESS "):
+        try:
+          _, progress_phase, percent = line.split(maxsplit=2)
+          progress = max(0, min(100, int(percent)))
+          _write_status(state, phase=progress_phase, progress=progress,
+                        message=f"{progress_phase} {progress}%")
+        except (TypeError, ValueError):
+          _write_status(state, phase=phase, message=line.strip()[-240:])
+      else:
+        _write_status(state, phase=phase, message=line.strip()[-240:])
   rc = proc.wait()
   _write_status(state, phase=phase, message=f"{Path(command[1]).name} exited {rc}")
   return rc, "".join(lines)
@@ -236,6 +245,7 @@ def _new_state(action: str, image: Path | None = None) -> dict:
     "started_at": time.time(),
     "updated_at": time.time(),
     "bus": None,
+    "progress": 0,
     "returncode": None,
   }
 

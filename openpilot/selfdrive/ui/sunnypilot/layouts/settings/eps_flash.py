@@ -193,6 +193,9 @@ class EPSFlashLayout(Widget):
     if state == "failed":
       return tr("FAILED")
     if self._is_running():
+      progress = self._status.get("progress")
+      if isinstance(progress, (int, float)) and progress > 0:
+        return f"{int(progress)}%"
       return str(self._status.get("phase", "running")).replace("_", " ").upper()
     return tr("PANDA RESTORED") if not self._has_panda_lock() else tr("PANDA RELEASED")
 
@@ -202,8 +205,10 @@ class EPSFlashLayout(Widget):
       return tr("Use RELEASE first, then select a matched firmware and FLASH.")
     image = self._status.get("image", "")
     message = self._status.get("message", "")
+    phase = str(self._status.get("phase", "")).replace("_", " ").title()
     prefix = f"{image}: " if image else ""
-    return prefix + str(message)
+    detail = f"{phase}: {message}" if phase and message else str(message)
+    return prefix + detail
 
   def _match_description(self) -> str:
     if not self._detected_fw:
