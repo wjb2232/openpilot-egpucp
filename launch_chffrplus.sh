@@ -270,6 +270,10 @@ function start_carrot_web {
   fi
 }
 
+function big_model_artifact_ready {
+  python3 -c 'from openpilot.selfdrive.modeld.helpers import active_usbgpu_compiled_path; raise SystemExit(0 if active_usbgpu_compiled_path() is not None else 1)' 2>/dev/null
+}
+
 function invalidate_modeld_build_if_needed {
   # Keep the stamp OUTSIDE openpilot/selfdrive/modeld: the stamp value is the
   # git tree hash of that directory, so a stamp file inside it would change the
@@ -297,7 +301,7 @@ function invalidate_modeld_build_if_needed {
 
   if [ -n "$BIG_MODEL_SHA" ]; then
     old_big_stamp="$(cat "$big_stamp_path" 2>/dev/null || true)"
-    if [ "$BIG_MODEL_SHA" != "$old_big_stamp" ] || [ ! -f "${BIG_MODEL_PKL_PATH}.chunkmanifest" ]; then
+    if [ "$BIG_MODEL_SHA" != "$old_big_stamp" ] || ! big_model_artifact_ready; then
       echo "USB eGPU big model changed or needs compilation."
       FORCE_REBUILD=1
     fi
@@ -306,7 +310,6 @@ function invalidate_modeld_build_if_needed {
 
 function prepare_big_model_if_needed {
   BIG_MODEL_SHA=""
-  BIG_MODEL_PKL_PATH=""
 
   # Only local state is consulted on the startup path. Remote model delivery
   # runs in the background below and must never delay manager startup.
@@ -315,9 +318,6 @@ function prepare_big_model_if_needed {
   fi
 
   BIG_MODEL_SHA="$(python3 -m openpilot.selfdrive.modeld.big_model --active-sha 2>/dev/null || true)"
-  if [ -n "$BIG_MODEL_SHA" ]; then
-    BIG_MODEL_PKL_PATH="$(python3 -c 'from openpilot.selfdrive.modeld.helpers import modeld_pkl_path; print(modeld_pkl_path(True))' 2>/dev/null || true)"
-  fi
 
   # Do not reject compilation from a one-shot 12V check here. During ignition
   # startup the USB bridge can enumerate before switched GPU power and PCIe are
@@ -511,7 +511,7 @@ function launch {
       mkdir -p "$DIR/openpilot/selfdrive/modeld/models"
       echo -n "$MODEL_BUILD_STAMP_VALUE" > "$DIR/.build_stamp"
       rm -f "$DIR/openpilot/selfdrive/modeld/models/.build_stamp"
-      if [ -n "$BIG_MODEL_SHA" ] && [ -f "${BIG_MODEL_PKL_PATH}.chunkmanifest" ]; then
+      if [ -n "$BIG_MODEL_SHA" ] && big_model_artifact_ready; then
         echo -n "$BIG_MODEL_SHA" > "$DIR/openpilot/selfdrive/modeld/models/.big_model_build_stamp"
       fi
     fi
