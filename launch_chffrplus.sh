@@ -271,6 +271,9 @@ function start_carrot_web {
 }
 
 function big_model_artifact_ready {
+  # A compiled eGPU model is either a precompiled artifact or the chunked
+  # tinygrad pickle. Query the same helper modeld loads from so the launcher and
+  # the runtime always agree on what "compiled" means.
   python3 -c 'from openpilot.selfdrive.modeld.helpers import active_usbgpu_compiled_path; raise SystemExit(0 if active_usbgpu_compiled_path() is not None else 1)' 2>/dev/null
 }
 
@@ -317,6 +320,9 @@ function prepare_big_model_if_needed {
     return
   fi
 
+  # The compiled artifact path is resolved by big_model_artifact_ready from the
+  # same active manifest, so it is not duplicated here. Keeping only the sha
+  # avoids a second stale lookup and the 'unavailable' fallback path.
   BIG_MODEL_SHA="$(python3 -m openpilot.selfdrive.modeld.big_model --active-sha 2>/dev/null || true)"
 
   # Do not reject compilation from a one-shot 12V check here. During ignition
