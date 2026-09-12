@@ -11,7 +11,8 @@ from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.controls.lib.longcontrol import LongCtrlState
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import LongitudinalMpc, LongitudinalPlanSource
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import T_IDXS as T_IDXS_MPC
-from openpilot.selfdrive.controls.lib.drive_helpers import CONTROL_N, get_accel_from_plan, should_stop
+from openpilot.selfdrive.controls.lib.drive_helpers import (CONTROL_N, get_accel_from_plan, should_start_from_plan,
+                                                            should_stop, should_stop_from_plan)
 from openpilot.selfdrive.car.cruise import V_CRUISE_MAX, V_CRUISE_UNSET
 from openpilot.common.swaglog import cloudlog
 
@@ -24,6 +25,12 @@ A_CRUISE_MIN = -1.2
 CONTROL_N_T_IDX = ModelConstants.T_IDXS[:CONTROL_N]
 ALLOW_THROTTLE_THRESHOLD = 0.4
 MIN_ALLOW_THROTTLE_SPEED = 2.5
+
+# v_desired_filter.x 是 "规划认为车现在跑多快", 它除了被 v_ego 以 2 s 时间常数弱回拉,
+# 还会在 update() 末尾按 a_target 积分 -- 那个积分假设车真的跟着 a_target 走。
+# 蠕行时车没跟, 积分就会把 x 一路推到远低于 v_ego 的地方, MPC 于是拿一个虚假的
+# 低初速度去规划停车, 减速时机整体偏早。把偏差钳在测速附近即可。
+V_DESIRED_MAX_ERROR = 0.2  # m/s
 
 # Lookup table for turns
 _A_TOTAL_MAX_V = [1.7, 3.2]
@@ -134,7 +141,20 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     action_t =  self.CP.longitudinalActuatorDelay + DT_MDL
     output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX,
                                               action_t=action_t)
-    output_should_stop_mpc = should_stop(v_ego, output_a_target_mpc)
+    lead = sm['radarState'].leadOne
+    lead_d_rel = lead.dRel if lead.present else None
+    lead_v_lead = lead.vLead if lead.present else None
+
+    # 这一条只决定 "该不该停", 不再决定 "要不要丢开规划"。接管规划曲线的时机由
+    # LongControl 里的入口迟滞和 stopping 控制律决定, 见 longcontrol.py。
+    # 规划已经在明确加速 -> 这是起步, 不是停车。必须是否决而不是 or: 上游的低速条款
+    # (v_ego < 0.3 且 a_target < 0.1) 在温和起步时同样成立, 会把规划规则的判别力短路掉。
+    starting_from_plan = should_start_from_plan(self.v_desired_trajectory, self.a_desired_trajectory,
+                                                CONTROL_N_T_IDX, action_t)
+    output_should_stop_mpc = (not starting_from_plan) and (
+        should_stop(v_ego, output_a_target_mpc, lead_d_rel, lead_v_lead) or
+        should_stop_from_plan(self.v_desired_trajectory, self.a_desired_trajectory,
+                              CONTROL_N_T_IDX, action_t))
     output_a_target_e2e = sm['modelV2'].action.desiredAcceleration
     output_should_stop_e2e = sm['modelV2'].action.shouldStop
 
@@ -143,7 +163,7 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
     self.a_cruise = get_cruise_accel(is_e2e, v_cruise, v_ego,
                                      self.a_cruise, steer_angle_without_offset, self.CP, self.dt,
                                      accel_coast, self.allow_throttle)
-    cruise_should_stop = should_stop(v_ego, self.a_cruise)
+    cruise_should_stop = should_stop(v_ego, self.a_cruise, lead_d_rel, lead_v_lead)
 
     candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop)]
@@ -151,10 +171,16 @@ class LongitudinalPlanner(LongitudinalPlannerSP):
       candidates.append((output_a_target_e2e, LongitudinalPlanSource.e2e, output_should_stop_e2e))
 
     output_a_target, self.mpc.source, _ = min(candidates, key=lambda c: c[0])
-    self.output_should_stop = any(should_stop for _, _, should_stop in candidates)
+    # cruise / e2e 候选同样能独立把 should_stop 置真, 所以起步否决要在这里再盖一次
+    self.output_should_stop = (not starting_from_plan) and any(should_stop for _, _, should_stop in candidates)
     self.output_a_target = np.clip(output_a_target, ACCEL_MIN, ACCEL_MAX)
 
+    # 下界也要保住非负: 上面 (以及 update 开头的) max(0.0, ...) 都发生在这次钳位之前,
+    # v_ego 很小时 v_ego - V_DESIRED_MAX_ERROR 是负的, 不夹住就会把 x 推到负速度。
     self.v_desired_filter.x = self.v_desired_filter.x + self.dt * (self.output_a_target + a_prev) / 2.0
+    self.v_desired_filter.x = float(np.clip(self.v_desired_filter.x,
+                                            max(0.0, v_ego - V_DESIRED_MAX_ERROR),
+                                            v_ego + V_DESIRED_MAX_ERROR))
 
   def publish(self, sm, pm):
     plan_send = messaging.new_message('longitudinalPlan')
