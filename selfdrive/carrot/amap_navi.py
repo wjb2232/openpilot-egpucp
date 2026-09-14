@@ -593,7 +593,7 @@ class AmapNaviServ:
 
         if _active_clients: #存在有客户端
           # 遍历前清空旧数据
-          for field in ["lb_drel", "rf_drel", "rb_drel", "lf_xrel", "lb_xrel", "rf_xrel", "rb_xrel", ]:
+          for field in ["lf_drel", "lb_drel", "rf_drel", "rb_drel", "lf_xrel", "lb_xrel", "rf_xrel", "rb_xrel", ]:
             getattr(self.shared_data, field).clear()
 
           left_lidar_id = right_lidar_id = 0
