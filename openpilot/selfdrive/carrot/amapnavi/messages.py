@@ -6,6 +6,7 @@
 
 import json
 
+from openpilot.selfdrive.carrot.amapnavi.config import unified_params
 from openpilot.selfdrive.carrot.amapnavi.shared_state import BLINKER_NONE, f1, f2
 
 DISTANCE_FIELDS = ("lf_drel", "lb_drel", "rf_drel", "rb_drel",
@@ -52,7 +53,7 @@ class NaviMessageBuilder:
     msg['ip'] = self.local_ip_address
     msg['port'] = self.listen_port
     msg['device'] = "op"
-    isOnroad = self.params.get_bool("IsOnroad")
+    isOnroad = unified_params.get_bool("IsOnroad")
     msg['IsOnroad'] = isOnroad
 
     if isOnroad:
@@ -73,7 +74,7 @@ class NaviMessageBuilder:
           msg["break_press"] = shared.break_press
         if shared.engaged is not None:
           msg["engaged"] = shared.engaged
-        if not self.params.get_bool("DisableBlindSpot"):
+        if not unified_params.get_bool("DisableBlindSpot"):
           if shared.left_blindspot is not None:
             msg["left_blindspot"] = shared.left_blindspot
           if shared.right_blindspot is not None:
@@ -83,7 +84,7 @@ class NaviMessageBuilder:
           msg["right_blindspot"] = False
 
       if sm.alive['radarState']:
-        self._add_radar_state(msg, disable_blindspot=self.params.get_bool("DisableBlindSpot"), full=True)
+        self._add_radar_state(msg, disable_blindspot=unified_params.get_bool("DisableBlindSpot"), full=True)
 
       # 侧向目标的相对速度
       for corner in ("lf", "lb", "rf", "rb"):
@@ -97,8 +98,8 @@ class NaviMessageBuilder:
       if shared.rightFrontBlind is not None:
         msg['r_front_blind'] = shared.rightFrontBlind
 
-      msg['lidar_lblind'] = shared.left_blindspot()
-      msg['lidar_rblind'] = shared.right_blindspot()
+      msg['lidar_lblind'] = shared.left_blindspot_combined()
+      msg['lidar_rblind'] = shared.right_blindspot_combined()
 
       for field in DISTANCE_FIELDS:
         table = getattr(shared, field)
@@ -156,7 +157,7 @@ class NaviMessageBuilder:
     msg['ip'] = self.local_ip_address
     msg['port'] = self.listen_port
     msg['device'] = "op"
-    isOnroad = self.params.get_bool("IsOnroad")
+    isOnroad = unified_params.get_bool("IsOnroad")
     msg['IsOnroad'] = isOnroad
 
     if isOnroad:
@@ -191,7 +192,7 @@ class NaviMessageBuilder:
     msg['ip'] = self.local_ip_address
     msg['port'] = self.listen_port
     msg['device'] = "op"
-    isOnroad = self.params.get_bool("IsOnroad")
+    isOnroad = unified_params.get_bool("IsOnroad")
     msg['IsOnroad'] = isOnroad
 
     if isOnroad:
@@ -242,7 +243,7 @@ class NaviMessageBuilder:
 
   # ------------------------------------------------------------------ 内部
   def _blinker_ctrl_value(self, default="none"):
-    stock = int(self.params.get_int("StockBlinkerCtrl"))
+    stock = int(unified_params.get_int("StockBlinkerCtrl"))
     ctrl = self.shared_data.blinker_ctrl
     if ctrl == 1:
       return "left" if stock == 0 else "stockleft"

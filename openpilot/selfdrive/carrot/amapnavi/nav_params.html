@@ -673,6 +673,118 @@
                 uiType: "number",
                 category: "盲区让行参数"
             },
+
+            "StockFrontBlindEnable": {
+                chineseName: "原车前侧盲区检测",
+                defaultValue: 1,
+                description: "用原车前雷达判断相邻车道是否有妨碍变道的目标（关闭时只使用模型的视觉结果）",
+                inputRange: [0, 1],
+                uiType: "select",
+                options: [
+                    { value: 0, text: "关闭" },
+                    { value: 1, text: "启用" }
+                ],
+                category: "原车前侧盲区"
+            },
+            "StockFrontLatMin": {
+                chineseName: "横向下限(x0.1m)",
+                defaultValue: 12,
+                description: "横向偏移小于该值视为还在本车道（前车），不算前侧盲区；实际取该值与半个车道宽的较大者",
+                inputRange: [0, 30],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontLatMax": {
+                chineseName: "横向上限硬顶(x0.1m)",
+                defaultValue: 50,
+                description: "横向偏移的绝对上限，防止把远处车道的车算进来",
+                inputRange: [20, 100],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontLatLaneFactor": {
+                chineseName: "横向上限倍数(x0.1倍车道宽)",
+                defaultValue: 18,
+                description: "横向上限 = 该倍数 x 车道宽（1.8=只认相邻车道），与上面的硬顶取较小者",
+                inputRange: [10, 30],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontDrelMin": {
+                chineseName: "纵向窗口-身后(x0.1m)",
+                defaultValue: -200,
+                description: "负值表示在本车身后多少米以内才纳入判断（如 -200 = 身后20米）",
+                inputRange: [-500, 0],
+                step: 10,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontDrelMax": {
+                chineseName: "纵向窗口-前方(x0.1m)",
+                defaultValue: 800,
+                description: "本车前方多少米以内才纳入判断（如 800 = 前方80米）",
+                inputRange: [100, 2000],
+                step: 50,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontTimeHeadway": {
+                chineseName: "安全时距(x0.1s)",
+                defaultValue: 15,
+                description: "安全纵向间距 = 本车速度 x 该时距，越大越保守",
+                inputRange: [5, 40],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontMinClearance": {
+                chineseName: "绝对最小间距(x0.1m)",
+                defaultValue: 40,
+                description: "低速时兜底的最小纵向间距，与时距算出的值取大者",
+                inputRange: [10, 150],
+                step: 5,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontTtc": {
+                chineseName: "危险TTC(x0.1s)",
+                defaultValue: 25,
+                description: "目标正在接近时，碰撞时间低于该值判定为危险（含后方快速追上来的目标）",
+                inputRange: [10, 60],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontHorizon": {
+                chineseName: "预测窗口(x0.1s)",
+                defaultValue: 30,
+                description: "按相对速度外推多少秒来算最近间距，应覆盖一次完整变道",
+                inputRange: [10, 80],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontOnTime": {
+                chineseName: "置位延时(x0.1s)",
+                defaultValue: 3,
+                description: "连续判定有风险达到该时间才置位，避免单帧误报导致闪烁",
+                inputRange: [0, 20],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
+            "StockFrontOffTime": {
+                chineseName: "清除延时(x0.1s)",
+                defaultValue: 8,
+                description: "连续判定无风险达到该时间才清除，避免临界处来回跳",
+                inputRange: [0, 50],
+                step: 1,
+                uiType: "number",
+                category: "原车前侧盲区"
+            },
         };
 
         var categoryColors = {
@@ -683,6 +795,7 @@
             "普通公路参数": "#9C27B0",
             "ATC参数": "#009688",
             "速度参数": "#FF9800",
+            "原车前侧盲区": "#00BCD4",
         };
 
         var NavParamsData = {};

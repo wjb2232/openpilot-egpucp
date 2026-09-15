@@ -87,12 +87,20 @@ class UnifiedParams:
           pass
 
     def _load_nav_params(self):
-        """加载自定义参数数据"""
+        """加载自定义参数数据。
+
+        以 ``_get_default_nav_data()`` 为底稿，用文件里的值覆盖——这样以后
+        新增参数（旧 JSON 里没有的键）也能拿到代码里的默认值，
+        不会因为读不到而退化成 0。
+        """
+        defaults = self._get_default_nav_data()
         try:
             if os.path.exists(self.nav_json_file):
                 with open(self.nav_json_file, 'r', encoding='utf-8') as f:
                     self.nav_data = json.load(f)
-                    self._match_system_param()
+                for key, value in defaults.items():
+                    self.nav_data.setdefault(key, value)
+                self._match_system_param()
             else:
                 self.nav_data = self._get_default_nav_data()
                 self._match_system_param()
@@ -152,6 +160,20 @@ class UnifiedParams:
             "BsdAccelLimit": 15,       # x0.1 km/h/s -> 1.5
             "BsdDecelLimit": 25,       # x0.1 km/h/s -> 2.5
             "BsdCommitTime": 25,       # x0.1s -> 2.5s
+
+            # 原车前雷达的「前侧盲区」(stock_front_blind)
+            "StockFrontBlindEnable": 1,
+            "StockFrontLatMin": 12,       # x0.1m -> 1.2m（横向下限，小于此值算本车道）
+            "StockFrontLatMax": 50,       # x0.1m -> 5.0m（横向上限硬顶）
+            "StockFrontLatLaneFactor": 18, # x0.1 -> 1.8 倍车道宽（横向上限）
+            "StockFrontDrelMin": -200,    # x0.1m -> -20m（纵向窗口：身后）
+            "StockFrontDrelMax": 800,     # x0.1m -> 80m（纵向窗口：前方）
+            "StockFrontTimeHeadway": 15,  # x0.1s -> 1.5s
+            "StockFrontMinClearance": 40, # x0.1m -> 4.0m
+            "StockFrontTtc": 25,          # x0.1s -> 2.5s
+            "StockFrontHorizon": 30,      # x0.1s -> 3.0s
+            "StockFrontOnTime": 3,        # x0.1s -> 0.3s（置位延时）
+            "StockFrontOffTime": 8,       # x0.1s -> 0.8s（清除延时）
         }
 
     def get_bool(self, key, default=False):

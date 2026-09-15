@@ -108,15 +108,18 @@ class SharedData:
 
     self.showDebugLog = 0
 
-  def left_blindspot(self):
+  # 注意：left_blindspot / right_blindspot 是「原车盲区」字段（见 __init__ 与
+  # vehicle_state），综合盲区必须用下面这两个 *_combined 方法——两者同名会让
+  # 实例字段把方法遮蔽掉，调用时变成 "NoneType is not callable"。
+  def left_blindspot_combined(self):
     """左侧综合盲区（车道线 / 车身 / 雷达 / 摄像头）。"""
-    return (self.left_blind or self.lidar_lblind or self.left_lane_blind
-            or self.lidar_lfblind or self.lidar_lbblind)
+    return bool(self.left_blind or self.lidar_lblind or self.left_lane_blind
+                or self.lidar_lfblind or self.lidar_lbblind)
 
-  def right_blindspot(self):
+  def right_blindspot_combined(self):
     """右侧综合盲区（车道线 / 车身 / 雷达 / 摄像头）。"""
-    return (self.right_blind or self.lidar_rblind or self.right_lane_blind
-            or self.lidar_rfblind or self.lidar_rbblind)
+    return bool(self.right_blind or self.lidar_rblind or self.right_lane_blind
+                or self.lidar_rfblind or self.lidar_rbblind)
 
   def clear_lidar_distances(self):
     """清空每帧重填的雷达距离表。"""

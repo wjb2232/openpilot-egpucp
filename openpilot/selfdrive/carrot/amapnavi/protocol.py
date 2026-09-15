@@ -7,6 +7,7 @@
 
 import time
 
+from openpilot.selfdrive.carrot.amapnavi.config import unified_params
 from openpilot.selfdrive.carrot.amapnavi.blindspot import (
   TrackedTarget,
   TrackerConfig,
@@ -110,7 +111,7 @@ class PacketHandler:
 
   def blinker_ctrl_value(self, default="none"):
     """外挂转向灯控制命令 → 协议字符串。"""
-    stock = int(self.params.get_int("StockBlinkerCtrl"))
+    stock = int(unified_params.get_int("StockBlinkerCtrl"))
     if self.shared_data.blinker_ctrl == BLINKER_LEFT:
       return "left" if stock == 0 else "stockleft"
     if self.shared_data.blinker_ctrl == BLINKER_RIGHT:
@@ -184,37 +185,50 @@ class PacketHandler:
   # ------------------------------------------------------------------ 内部
   def _instant_blind(self):
     """是否使用「立即上报」的盲区（与原有 DynamicBlindRange 语义一致）。"""
-    dynamic_range = int(self.params.get_int("DynamicBlindRange"))
-    dynamic_dist = int(self.params.get_int("DynamicBlindDistance"))
+    dynamic_range = int(unified_params.get_int("DynamicBlindRange"))
+    dynamic_dist = int(unified_params.get_int("DynamicBlindDistance"))
     if dynamic_range == 0 and dynamic_dist == 0:
       return True
     return dynamic_range == 1 and not getattr(self, "atc_flag", False)
 
   def _update_main_targets(self, lidar_id, detect_side, values, old_info):
-    """保存主雷达（编号 0/1/2）的距离，缺失时用上一次的值消抖。"""
+    """保存主雷达（编号 0/1/2）的距离，缺失时用上一次的值消抖。
+
+    只有当本包确实带了该角的距离时才覆写 ``main_*``：多个客户端同时上报时
+    （本机雷达 + 另一台雷达/仿真设备），不带该角的包（心跳包、只报前角或
+    只报后角的包）会把 None 直接写进去，于是 ``??Drel`` 在真实值和 0 之间
+    以包速率来回跳，UI 上就是"距离乱跳/一会儿变 0"。
+    「这个角确实没有数据」由 amap_navi._aggregate_clients() 每帧按所有
+    客户端的汇总结果统一清空，这里不再写 None。
+    """
     shared = self.shared_data
+
+    def put(attr, value):
+      if value is not None:
+        setattr(shared, attr, value)
+
     if detect_side & 1:
       if lidar_id in (0, 1):
         if values["lf_drel"] is None: values["lf_drel"] = old_info.get("lf_drel", None)
         if values["lf_xrel"] is None: values["lf_xrel"] = old_info.get("lf_xrel", None)
-        shared.main_lf_drel = values["lf_drel"]
-        shared.main_lf_xrel = values["lf_xrel"]
+        put("main_lf_drel", values["lf_drel"])
+        put("main_lf_xrel", values["lf_xrel"])
       if lidar_id in (0, 2):
         if values["lb_drel"] is None: values["lb_drel"] = old_info.get("lb_drel", None)
         if values["lb_xrel"] is None: values["lb_xrel"] = old_info.get("lb_xrel", None)
-        shared.main_lb_drel = values["lb_drel"]
-        shared.main_lb_xrel = values["lb_xrel"]
+        put("main_lb_drel", values["lb_drel"])
+        put("main_lb_xrel", values["lb_xrel"])
     if detect_side & 2:
       if lidar_id in (0, 1):
         if values["rf_drel"] is None: values["rf_drel"] = old_info.get("rf_drel", None)
         if values["rf_xrel"] is None: values["rf_xrel"] = old_info.get("rf_xrel", None)
-        shared.main_rf_drel = values["rf_drel"]
-        shared.main_rf_xrel = values["rf_xrel"]
+        put("main_rf_drel", values["rf_drel"])
+        put("main_rf_xrel", values["rf_xrel"])
       if lidar_id in (0, 2):
         if values["rb_drel"] is None: values["rb_drel"] = old_info.get("rb_drel", None)
         if values["rb_xrel"] is None: values["rb_xrel"] = old_info.get("rb_xrel", None)
-        shared.main_rb_drel = values["rb_drel"]
-        shared.main_rb_xrel = values["rb_xrel"]
+        put("main_rb_drel", values["rb_drel"])
+        put("main_rb_xrel", values["rb_xrel"])
 
   def _update_side_risk(self, lidar_id, detect_side, values, old_info, dist_timems):
     """用卡尔曼跟踪 + 风险评估更新四个角的危险标志。"""

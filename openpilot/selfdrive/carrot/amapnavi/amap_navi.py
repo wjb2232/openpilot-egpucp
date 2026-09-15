@@ -41,6 +41,11 @@ from openpilot.selfdrive.carrot.amapnavi.transport import (
   UdpTransport,
   refresh_timeouts,
 )
+from openpilot.selfdrive.carrot.amapnavi.config import unified_params
+from openpilot.selfdrive.carrot.amapnavi.stock_front_blind import (
+  StockFrontBlindMonitor,
+  apply_stock_front_blind,
+)
 from openpilot.selfdrive.carrot.amapnavi.vehicle_state import update_from_submaster
 
 CORNERS = ("lf", "lb", "rf", "rb")
@@ -96,6 +101,9 @@ class AmapNaviServ:
     self.last_speed_plan = {'left': None, 'right': None}
     self._update_advisor_config()
 
+    # 原车前雷达的「前侧盲区」（左右相邻车道是否有妨碍变道的目标）
+    self.stock_front_blind = StockFrontBlindMonitor(self.params)
+
     self.transport.start()
     threading.Thread(target=self._data_deal_thread, daemon=True).start()
 
@@ -111,46 +119,47 @@ class AmapNaviServ:
   # ------------------------------------------------------------------ 参数
   def update_param(self):
     if self.frame % 100 == 0:
-      p = self.params
-      hold = p.get_int("LidarBsdDelayTime") * 0.1
+      # 参数统一走 amapnavi 自己的参数模块（config.py 的 UnifiedParams）：
+      # 这些 key 没有注册进 openpilot 的 params_keys.h，直接 Params().get_int
+      # 会抛 UnknownKeyName，导致整块参数更新失败（且异常被静默吞掉）。
+      hold = unified_params.get_int("LidarBsdDelayTime") * 0.1
       for counter in self.corner_counters.values():
         counter.hold_s = hold
-      self.solid_counters['left'].hold_s = p.get_int("LaneLineDelayTime") * 0.1
-      self.solid_counters['right'].hold_s = p.get_int("LaneLineDelayTime") * 0.1
+      self.solid_counters['left'].hold_s = unified_params.get_int("LaneLineDelayTime") * 0.1
+      self.solid_counters['right'].hold_s = unified_params.get_int("LaneLineDelayTime") * 0.1
 
       handler = self.packet_handler
-      handler.min_front_drel_vego_time = p.get_int("LidarFrontVDistTime") * 0.1
-      handler.min_front_vrel_vego_time = p.get_int("LidarFrontVRelDistTime") * 0.1
-      handler.min_behind_drel_vego_time = p.get_int("LidarBehindVDistTime") * 0.1
-      handler.min_behind_vrel_vego_time = p.get_int("LidarBehindVRelDistTime") * 0.1
-      handler.min_clearance_m = max(1.0, p.get_int("LidarMinClearance") * 0.1)
-      handler.ttc_threshold_s = max(0.5, p.get_int("LidarTtcThreshold") * 0.1)
-      handler.risk_horizon_s = max(1.0, p.get_int("LidarRiskHorizon") * 0.1)
+      handler.min_front_drel_vego_time = unified_params.get_int("LidarFrontVDistTime") * 0.1
+      handler.min_front_vrel_vego_time = unified_params.get_int("LidarFrontVRelDistTime") * 0.1
+      handler.min_behind_drel_vego_time = unified_params.get_int("LidarBehindVDistTime") * 0.1
+      handler.min_behind_vrel_vego_time = unified_params.get_int("LidarBehindVRelDistTime") * 0.1
+      handler.min_clearance_m = max(1.0, unified_params.get_int("LidarMinClearance") * 0.1)
+      handler.ttc_threshold_s = max(0.5, unified_params.get_int("LidarTtcThreshold") * 0.1)
+      handler.risk_horizon_s = max(1.0, unified_params.get_int("LidarRiskHorizon") * 0.1)
 
-      self.dynamicBlindRange = p.get_int("DynamicBlindRange")
-      self.dynamicBlindDistance = p.get_int("DynamicBlindDistance")
-      self.disableBlindSpot = p.get_bool("DisableBlindSpot")
+      self.dynamicBlindRange = unified_params.get_int("DynamicBlindRange")
+      self.dynamicBlindDistance = unified_params.get_int("DynamicBlindDistance")
+      self.disableBlindSpot = unified_params.get_bool("DisableBlindSpot")
       self._update_advisor_config()
 
       # 外部(carrotMan)没有设置调试标志时，使用Web页面设置的值
       if self.shared_data.showDebugLog == 0:
-        self.shared_data.showDebugLog = p.get_int("ShowDebugLog")
+        self.shared_data.showDebugLog = unified_params.get_int("ShowDebugLog")
     self.frame += 1
 
   def _update_advisor_config(self):
     """把网页上可调的让行参数同步到左右两侧的 SpeedAdvisor。"""
-    p = self.params
     cfg = HumanLikeConfig(
-      time_headway_s=max(0.5, p.get_int("BsdTimeHeadway") * 0.1),
-      min_gap_m=max(2.0, p.get_int("BsdMinGap") * 0.1),
-      merge_margin_m=max(0.0, p.get_int("BsdMergeMargin") * 0.1),
-      rear_danger_gap_m=max(1.0, p.get_int("BsdRearDangerGap") * 0.1),
-      speed_margin_kph=max(0.0, float(p.get_int("BsdSpeedMargin"))),
-      max_speedup_kph=max(0.0, float(p.get_int("BsdMaxSpeedup"))),
-      max_slowdown_kph=max(0.0, float(p.get_int("BsdMaxSlowdown"))),
-      accel_limit_kphps=max(0.2, p.get_int("BsdAccelLimit") * 0.1),
-      decel_limit_kphps=max(0.2, p.get_int("BsdDecelLimit") * 0.1),
-      commit_s=max(0.0, p.get_int("BsdCommitTime") * 0.1),
+      time_headway_s=max(0.5, unified_params.get_int("BsdTimeHeadway") * 0.1),
+      min_gap_m=max(2.0, unified_params.get_int("BsdMinGap") * 0.1),
+      merge_margin_m=max(0.0, unified_params.get_int("BsdMergeMargin") * 0.1),
+      rear_danger_gap_m=max(1.0, unified_params.get_int("BsdRearDangerGap") * 0.1),
+      speed_margin_kph=max(0.0, float(unified_params.get_int("BsdSpeedMargin"))),
+      max_speedup_kph=max(0.0, float(unified_params.get_int("BsdMaxSpeedup"))),
+      max_slowdown_kph=max(0.0, float(unified_params.get_int("BsdMaxSlowdown"))),
+      accel_limit_kphps=max(0.2, unified_params.get_int("BsdAccelLimit") * 0.1),
+      decel_limit_kphps=max(0.2, unified_params.get_int("BsdDecelLimit") * 0.1),
+      commit_s=max(0.0, unified_params.get_int("BsdCommitTime") * 0.1),
     )
     for advisor in self.advisors.values():
       advisor.cfg = cfg
@@ -164,6 +173,7 @@ class AmapNaviServ:
         self.sm.update(0)
         self.update_param()
         update_from_submaster(self.shared_data, self.sm)
+        apply_stock_front_blind(self.shared_data, self.sm, 1.0 / DATA_HZ, self.stock_front_blind)
 
         self.solid_line_blind()
         self.lidar_object_blind()
@@ -268,6 +278,16 @@ class AmapNaviServ:
         self.transport.replace_client(ip, info)
       except Exception as e:
         print(f"deal client {ip} failed: {e}")
+
+    # 某个角已经没有任何客户端上报时，main_* 的上一帧残值必须清掉。
+    # main_* 由 protocol 在收包时写入，只在"所有客户端掉光"时才会被
+    # _clear_client_state() 复位；若某侧雷达掉线而其它客户端仍在，
+    # 掉线前的距离/横向/相对速度会一直挂着（??DrelValid 恒为 1）。
+    for corner in CORNERS:
+      if not any(v is not None for v in getattr(shared, f"{corner}_drel").values()):
+        setattr(shared, f"main_{corner}_drel", None)
+        setattr(shared, f"main_{corner}_xrel", None)
+        setattr(shared, f"{corner}_vrel", None)
 
     # 动态盲区时用去抖后的四角结果，否则直接用模块上报值
     if (self.dynamicBlindRange == 0 and self.dynamicBlindDistance == 0) or \
