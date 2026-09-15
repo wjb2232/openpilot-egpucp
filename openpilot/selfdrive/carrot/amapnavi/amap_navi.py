@@ -398,6 +398,11 @@ class AmapNaviServ:
     # 外挂客户端(控制器)数量：雷达 / 摄像头 / 转向灯板 + lane 服务
     msg.amapNavi.extState = int(shared.ext_state)
 
+    # 原车前雷达的「前侧盲区」：UI 第一行黄圆图标 + 变道护栏配色（源端取自
+    # modelV2.meta.leftFrontBlind，本 fork 由 stock_front_blind 算好后从这里下发）
+    msg.amapNavi.lFrontBlind = bool(shared.leftFrontBlind)
+    msg.amapNavi.rFrontBlind = bool(shared.rightFrontBlind)
+
     self.pm.send('amapNavi', msg)
 
   # ------------------------------------------------------------------ 车速建议

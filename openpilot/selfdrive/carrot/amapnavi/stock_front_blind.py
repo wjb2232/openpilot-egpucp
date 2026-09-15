@@ -247,6 +247,9 @@ def apply_stock_front_blind(shared_data, sm, dt: float,
   monitor = monitor if monitor is not None else StockFrontBlindMonitor()
   monitor.refresh_config()
   if not monitor.cfg.enable:
+    # 功能关闭时清掉标志，避免关掉之后图标/护栏还挂在关闭前的 True 上
+    shared_data.leftFrontBlind = False
+    shared_data.rightFrontBlind = False
     return monitor
 
   v_ego = v_ego_mps if v_ego_mps is not None else (shared_data.v_ego_m or 0.0)

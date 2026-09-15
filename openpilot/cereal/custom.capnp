@@ -238,6 +238,11 @@ struct AmapNavi @0xda96579883444c35 {
 	rbDrel @14 :Int32;
 	# 已连接的外挂客户端(控制器)数量，UI 的 E 徽标显示用
 	extState @15 :Int32;
+	# 原车前雷达的「前侧盲区」(selfdrive/carrot/amapnavi/stock_front_blind.py)：
+	# UI 第一行黄圆图标与变道护栏配色用。源端取 modelV2.meta.leftFrontBlind，
+	# 本 fork 的 MetaData 没有该字段，所以由 amapnavi 算好后从这里下发。
+	lFrontBlind @16 :Bool;
+	rFrontBlind @17 :Bool;
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {

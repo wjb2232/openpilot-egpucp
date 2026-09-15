@@ -43,9 +43,11 @@ UI 代码必须重启 manager / 设备（``sudo reboot``）才会生效；只重
             (``laneChangeState == preLaneChange``) 时显示  —— 见 :func:`barrier_visible_sides`
   图标箭头：``ShowLaneInfo >= 1`` 才画上下箭头
 
-**已知差异**：源端第一行圆圈用的是 ``modelV2.meta.leftFrontBlind``（原车前盲区），
-本分支的 MetaData 没有该字段，因此用 ``getattr`` 兜底为 False，
-即第一行在本分支不会出现（不影响雷达/摄像头/距离的显示）。
+**第一行圆圈（原车前盲区）的数据来源**：源端取 ``modelV2.meta.leftFrontBlind``，
+本 fork 的 MetaData 没有该字段（cereal 里搜不到 FrontBlind），因此改从
+``amapNavi.lFrontBlind`` / ``rFrontBlind`` 读 —— 由
+``selfdrive/carrot/amapnavi/stock_front_blind.py`` 用原车前雷达目标算出后下发；
+若将来 MetaData 补上该字段，两者按 OR 合并（见 :func:`_front_blind`）。
 """
 
 import time
@@ -198,13 +200,26 @@ def _stock_blindspots(sm) -> dict:
 
 
 def _front_blind(sm) -> dict:
-  """原车前盲区（源端取 modelV2.meta.leftFrontBlind，本分支无此字段时兜底 False）。"""
+  """原车前盲区（原车前雷达判断的侧前方盲区，UI 第一行黄圆图标）。
+
+  源端取 ``modelV2.meta.leftFrontBlind`` / ``rightFrontBlind``，但本 fork 的
+  MetaData 没有这两个字段；这里改从 CP 的 ``amapNavi.lFrontBlind`` /
+  ``rFrontBlind`` 读（由 ``selfdrive/carrot/amapnavi/stock_front_blind.py``
+  依据原车前雷达目标算出）。两者任一为真即为真，取不到则 False。
+  """
   out = {"left": False, "right": False}
+  try:
+    if sm.valid['amapNavi']:
+      msg = sm['amapNavi']
+      out["left"] = bool(getattr(msg, "lFrontBlind", False))
+      out["right"] = bool(getattr(msg, "rFrontBlind", False))
+  except Exception:
+    pass
   try:
     if sm.valid['modelV2']:
       meta = sm['modelV2'].meta
-      out["left"] = bool(getattr(meta, "leftFrontBlind", False))
-      out["right"] = bool(getattr(meta, "rightFrontBlind", False))
+      out["left"] = out["left"] or bool(getattr(meta, "leftFrontBlind", False))
+      out["right"] = out["right"] or bool(getattr(meta, "rightFrontBlind", False))
   except Exception:
     pass
   return out
