@@ -46,6 +46,11 @@ JPEG_QUALITY = 50
 
 # 请求统计窗口
 REQUEST_WINDOW = 2.0
+# 取流间隔（秒）：按客户端实际请求速率动态调整
+# 统计窗口内没有任何请求时退回的保守间隔（2fps）
+DEFAULT_FRAME_TIME = 0.5
+MIN_FRAME_TIME = 0.05      # 最快 20fps
+MAX_FRAME_TIME = 1.0       # 最慢 1fps
 # 客户端超过该时间没有请求就停止取流，避免空转耗 CPU
 IDLE_TIMEOUT = 2.0
 # 取流失败后的退避
@@ -385,10 +390,16 @@ class LaneStreamServer:
       if now - self.req_window_start > REQUEST_WINDOW:
         self.req_window_start = now
         self.latest_req_count = self.req_count
-        if self.latest_req_count >= 1:
-          # 按客户端实际请求速率取流（相机线程最多跑到请求速率的 2 倍）
-          self.req_frame_time = 2.0 / self.latest_req_count
         self.req_count = 0
+        if self.latest_req_count >= 1:
+          # 按客户端实际请求速率取流（留 2 倍余量，保证有新鲜帧）
+          target = 2.0 / self.latest_req_count
+          self.req_frame_time = max(MIN_FRAME_TIME, min(MAX_FRAME_TIME, target))
+        else:
+          # 本窗口没有任何请求：退回保守间隔。
+          # 不重置的话会沿用上一次的间隔（可能很小），
+          # 导致客户端只要 2fps 时相机线程仍按 20fps 编码，白白耗 CPU。
+          self.req_frame_time = DEFAULT_FRAME_TIME
       self.req_count += 1
 
     with self.frame_lock:
