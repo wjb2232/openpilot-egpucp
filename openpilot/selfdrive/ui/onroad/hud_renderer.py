@@ -859,9 +859,11 @@ class HudRenderer(Widget):
     dx = bx + 200
     dy = by + 175
 
+    # 左半格：单字符徽标（N/M）；右半格：外挂客户端数量。
+    # 两格各 50px，合计 110px，与原来的 3 字符宽度一致（与 cpv9-dev 布局对齐）。
     if active_carrot >= 2:
       self._draw_round_box(
-        dx - 55, dy - 38, 110, 48,
+        dx - 55, dy - 38, 50, 48,
         rl.GREEN,
         line_color=rl.WHITE,
         roundness=0.25,
@@ -869,7 +871,7 @@ class HudRenderer(Widget):
         line_thickness=2,
       )
       draw_text_ui_style(
-        "APN", dx, dy, 40, rl.WHITE,
+        "N", dx - 30, dy, 40, rl.WHITE,
         font=self._font_display,
         border_width=2.0,
         shadow_offset=4.0,
@@ -877,7 +879,7 @@ class HudRenderer(Widget):
       )
     elif active_carrot >= 1:
       self._draw_round_box(
-        dx - 55, dy - 38, 110, 48,
+        dx - 55, dy - 38, 50, 48,
         COLORS.BLUE_210,
         line_color=rl.WHITE,
         roundness=0.25,
@@ -885,7 +887,7 @@ class HudRenderer(Widget):
         line_thickness=2,
       )
       draw_text_ui_style(
-        "APM", dx, dy, 40, rl.WHITE,
+        "M", dx - 30, dy, 40, rl.WHITE,
         font=self._font_display,
         border_width=2.0,
         shadow_offset=4.0,

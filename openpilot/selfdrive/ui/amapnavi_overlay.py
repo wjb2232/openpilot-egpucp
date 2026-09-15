@@ -13,6 +13,12 @@
                                  状态徽标处调用 :func:`draw_ext_state_badge`
 * ``mici/onroad/model_renderer.py`` - ``_draw_blindspots()`` 末尾调用 :func:`draw_barriers_mici`
 
+**改动生效方式（踩过的坑）**：``system/manager/process.py`` 会在 manager 启动时
+preimport 各进程模块，各进程再由 manager ``fork`` 出来并继承已导入的模块。
+因此**只重启 UI 进程（``selfdrive.ui.ui``）不会重新加载本模块**——改完这里的
+UI 代码必须重启 manager / 设备（``sudo reboot``）才会生效；只重启 UI 进程时
+屏幕会一直沿用 manager 启动那一刻的旧版本，表现为"改了没反应"。
+
 盲区位定义（``amapNavi.leftBlind`` / ``rightBlind``，与源端一致）::
 
   bit0 (1)  激光雷达盲区
@@ -31,6 +37,12 @@
 
   原始单位 mm，amap_navi 发布时 /100 → dm，本模块显示时再 /10 → 米（与源端一致）
 
+显示策略（与源端一致）::
+
+  变道护栏：``ShowLaneInfo >= 2`` 强制常显；否则只在对应侧处于变道准备
+            (``laneChangeState == preLaneChange``) 时显示  —— 见 :func:`barrier_visible_sides`
+  图标箭头：``ShowLaneInfo >= 1`` 才画上下箭头
+
 **已知差异**：源端第一行圆圈用的是 ``modelV2.meta.leftFrontBlind``（原车前盲区），
 本分支的 MetaData 没有该字段，因此用 ``getattr`` 兜底为 False，
 即第一行在本分支不会出现（不影响雷达/摄像头/距离的显示）。
@@ -41,9 +53,13 @@ from dataclasses import dataclass, field
 
 import pyray as rl
 
+from openpilot.cereal import log
+from openpilot.system.ui.lib.application import gui_app, FontWeight
 from openpilot.system.ui.lib.shader_polygon import draw_polygon
-from openpilot.system.ui.lib.text_draw import draw_text_ui_style
+from openpilot.system.ui.lib.text_draw import draw_text_ui_style, get_text_draw_pos
 from openpilot.selfdrive.ui.road_markings import blindspot_barrier_quads, project_blindspot_barrier
+
+LaneChangeState = log.LaneChangeState
 
 # ------------------------------------------------------------------ 位定义
 BLIND_LIDAR = 1
@@ -97,11 +113,20 @@ DIST_FONT_SIZE = 50
 DIST_TEXT_OFFSET_X = 30
 DIST_TEXT_OFFSET_Y = 35
 
+# 距离文字的半透明黑底（移植自源端 drawTextWithBg）：
+# 相机画面背景太花，纯文字看不清，源端给每个距离值垫了 RGBA(0,0,0,150) 的圆角底
+DIST_BG_COLOR = _c(0, 0, 0, 150)
+DIST_BG_PADDING_X = 10
+DIST_BG_PADDING_Y = 6
+DIST_BG_ROUND_PX = 6
+
 SOLID_BAR_WIDTH = 20
 
-# E 徽标（外挂客户端数量），相对 APN/APM 徽标中心的偏移
-EXT_BADGE_OFFSET_X = 60
-EXT_BADGE_WIDTH = 55
+# E 徽标（外挂客户端数量）
+# 左侧单字符徽标占 dx-55..dx-5，这里紧接其后占 dx+5..dx+55，
+# 两块合计 110px，正好是原来 3 字符徽标的位置（与 cpv9-dev 一致）
+EXT_BADGE_OFFSET_X = 5
+EXT_BADGE_WIDTH = 50
 EXT_BADGE_HEIGHT = 48
 EXT_BADGE_OK = _c(0, 228, 48, 255)
 EXT_BADGE_IDLE = _c(230, 60, 60, 255)
@@ -222,12 +247,39 @@ def icon_color(blind: int):
 
 # ------------------------------------------------------------------ 绘制原语
 def _tri(x1, y1, x2, y2, x3, y3, color: rl.Color) -> None:
+  """绘制实心三角形。
+
+  raylib 的 ``DrawTriangle`` 受背面剔除影响（源端 nanovg 不受），而本仓库其它
+  3D 绘制（例如 cluster 的 ``draw_model_ex``）会把剔除打开，于是绕序相反的三角形
+  （向下的箭头、向左的箭头）会被整块剔除掉，表现为"只有部分箭头能显示"。
+
+  这里做两层保护：
+  1. 画之前临时关掉背面剔除（``cluster_renderer`` 同款做法）；
+  2. 再以相反绕序画一遍同一个三角形——两个三角形完全重合，视觉上无差别，
+     但无论当前剔除状态如何，总有一遍能通过，彻底避免"箭头整块消失"。
+  """
+  try:
+    rl.rl_disable_backface_culling()
+  except Exception:
+    pass
+
   rl.draw_triangle(
     rl.Vector2(float(x1), float(y1)),
     rl.Vector2(float(x2), float(y2)),
     rl.Vector2(float(x3), float(y3)),
     color,
   )
+  rl.draw_triangle(
+    rl.Vector2(float(x1), float(y1)),
+    rl.Vector2(float(x3), float(y3)),
+    rl.Vector2(float(x2), float(y2)),
+    color,
+  )
+
+  try:
+    rl.rl_enable_backface_culling()
+  except Exception:
+    pass
 
 
 def _arrow_up(cx, cy, color: rl.Color, gap: float = 0.0) -> None:
@@ -263,6 +315,30 @@ def _arrow_side(cx, cy, to_left: bool, color: rl.Color) -> None:
     _tri(cx - half_l, cy, cx + half_l, cy - half_w, cx + half_l, cy + half_w, color)
   else:
     _tri(cx + half_l, cy, cx - half_l, cy - half_w, cx - half_l, cy + half_w, color)
+
+
+def _draw_text_with_bg(text, x, y, font_size, color, align, font=None) -> None:
+  """带半透明黑底的文字（移植自源端 ``drawTextWithBg``）。
+
+  底框紧贴实际文字（随左/右对齐方式变化），四周留白与源端一致：
+  左右 10px、上下 6px、圆角 6px，底色 RGBA(0,0,0,150)；文字垂直居中于 ``y``。
+  """
+  if font is None:
+    font = gui_app.font(FontWeight.DISPLAY)
+
+  draw_x, draw_y, size = get_text_draw_pos(font, text, x, y, font_size, align, 0.0)
+  w = float(size.x) + DIST_BG_PADDING_X * 2
+  h = float(size.y) + DIST_BG_PADDING_Y * 2
+  rect = rl.Rectangle(
+    float(draw_x - DIST_BG_PADDING_X), float(draw_y - DIST_BG_PADDING_Y), w, h,
+  )
+  roundness = min(0.5, DIST_BG_ROUND_PX / max(1.0, min(w, h) * 0.5))
+  rl.draw_rectangle_rounded(rect, roundness, 8, DIST_BG_COLOR)
+
+  draw_text_ui_style(
+    text, x, y, font_size, color,
+    font=font, border_width=2.0, shadow_offset=4.0, align=align, y_offset=0.0,
+  )
 
 
 # ------------------------------------------------------------------ 参数缓存
@@ -342,14 +418,12 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
       text_x = cx + sign * (r + DIST_TEXT_OFFSET_X)
       align = "right_center" if is_left else "left_center"
       if f_valid:
-        draw_text_ui_style(
-          f"{f_dist:.1f}", text_x, cy - DIST_TEXT_OFFSET_Y, DIST_FONT_SIZE, DIST_TEXT_YELLOW,
-          font=font, border_width=2.0, shadow_offset=4.0, align=align,
+        _draw_text_with_bg(
+          f"{f_dist:.1f}", text_x, cy - DIST_TEXT_OFFSET_Y, DIST_FONT_SIZE, DIST_TEXT_YELLOW, align, font,
         )
       if r_valid:
-        draw_text_ui_style(
-          f"{r_dist:.1f}", text_x, cy + DIST_TEXT_OFFSET_Y, DIST_FONT_SIZE, DIST_TEXT_YELLOW,
-          font=font, border_width=2.0, shadow_offset=4.0, align=align,
+        _draw_text_with_bg(
+          f"{r_dist:.1f}", text_x, cy + DIST_TEXT_OFFSET_Y, DIST_FONT_SIZE, DIST_TEXT_YELLOW, align, font,
         )
 
     # 雷达 / 摄像头盲区圆圈
@@ -411,6 +485,34 @@ def ext_state_from(sm) -> int:
 
 
 # ------------------------------------------------------------------ 变道护栏
+def pre_lane_change_sides(sm) -> dict:
+  """当前处于「变道准备(preLaneChange)」的方向。
+
+  对应源端 ``leftLaneChange`` / ``rightLaneChange``（只认 preLaneChange，不含起步中）。
+  """
+  out = {"left": False, "right": False}
+  try:
+    if sm.valid['modelV2']:
+      meta = sm['modelV2'].meta
+      if meta.laneChangeState == LaneChangeState.preLaneChange:
+        direction = str(meta.laneChangeDirection).lower()
+        out["left"] = "left" in direction
+        out["right"] = "right" in direction
+  except Exception:
+    pass
+  return out
+
+
+def barrier_visible_sides(sm) -> dict:
+  """护栏是否显示（源端 ``if(leftLaneChange || show_lane_info == 2)``）。
+
+  ``ShowLaneInfo >= 2`` 时强制两侧常显；否则只在对应侧处于变道准备时显示。
+  """
+  if _cached_int_param("ShowLaneInfo", 1) >= 2:
+    return {"left": True, "right": True}
+  return pre_lane_change_sides(sm)
+
+
 def draw_barriers_c3(renderer, sm) -> None:
   """c3（大屏）渲染器：补充 amapnavi 的变道护栏着色。
 
@@ -423,7 +525,10 @@ def draw_barriers_c3(renderer, sm) -> None:
     if not sm.valid['modelV2']:
       return
     front = _front_blind(sm)
+    visible = barrier_visible_sides(sm)
     for idx, side in enumerate(SIDES):
+      if not visible[side]:
+        continue
       color = barrier_color(view.blind(side), front[side])
       if color is None:
         continue
@@ -446,8 +551,11 @@ def draw_barriers_mici(renderer, sm) -> None:
     if points.shape[0] < 2:
       return
     front = _front_blind(sm)
+    visible = barrier_visible_sides(sm)
     max_idx = renderer._get_path_length_idx(points[:, 0], 40.0)
     for side, shift in (("left", -1.7), ("right", 1.7)):
+      if not visible[side]:
+        continue
       color = barrier_color(view.blind(side), front[side])
       if color is None:
         continue
