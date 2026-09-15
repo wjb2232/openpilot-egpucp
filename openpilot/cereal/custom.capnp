@@ -219,7 +219,7 @@ struct CarrotNaviMedia @0xf35cc4560bbf6ec2 {
 	payload @14 :Data;
 }
 
-# amapnavi: 외부 라이다/카메라 BSD 모듈 상태 (selfdrive/carrot/amapnavi)
+# amapnavi: 外挂激光雷达/摄像头 BSD 模块状态 (selfdrive/carrot/amapnavi)
 struct AmapNavi @0xda96579883444c35 {
 	leftBlind @0 :Int32;
 	rightBlind @1 :Int32;
@@ -236,6 +236,8 @@ struct AmapNavi @0xda96579883444c35 {
 	lbDrel @12 :Int32;
 	rfDrel @13 :Int32;
 	rbDrel @14 :Int32;
+	# 已连接的外挂客户端(控制器)数量，UI 的 E 徽标显示用
+	extState @15 :Int32;
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {

@@ -7,6 +7,7 @@ from openpilot.common.params import Params
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
+from openpilot.selfdrive.ui.amapnavi_overlay import draw_barriers_mici
 from openpilot.selfdrive.ui.road_markings import lane_dash_segments, project_blindspot_barrier, blindspot_barrier_quads
 from openpilot.selfdrive.ui.mici.onroad import blend_colors
 from openpilot.system.ui.lib.application import gui_app, FontWeight
@@ -451,6 +452,7 @@ class ModelRenderer(Widget):
         polygon = project_blindspot_barrier(self._path.raw_points[:max_idx + 1], shift, self._car_space_transform, self._clip_region)
         for quad in blindspot_barrier_quads(polygon):
           draw_polygon(self._rect, quad, rl.Color(255, 215, 0, 150))
+    draw_barriers_mici(self, sm)  # amapnavi（外挂雷达/摄像头）的变道护栏
 
   def _draw_path(self, sm):
     """Draw path with dynamic coloring based on mode and throttle state."""

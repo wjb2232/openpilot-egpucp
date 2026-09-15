@@ -372,7 +372,11 @@ class AmapNaviServ:
     for corner in CORNERS:
       valid = getattr(shared, f"main_{corner}_drel")
       setattr(msg.amapNavi, f"{corner}DrelValid", 1 if valid is not None else 0)
+      # 原始单位为 mm，/100 → dm（与源端一致，UI 再 /10 得到米）
       setattr(msg.amapNavi, f"{corner}Drel", 0 if valid is None else int(round(valid / 100)))
+
+    # 外挂客户端(控制器)数量：雷达 / 摄像头 / 转向灯板 + lane 服务
+    msg.amapNavi.extState = int(shared.ext_state)
 
     self.pm.send('amapNavi', msg)
 
