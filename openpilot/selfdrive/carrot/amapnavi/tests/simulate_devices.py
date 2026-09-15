@@ -230,6 +230,17 @@ def main():
     except Exception as e:
       print(f"  跳过 amapNavi 订阅（cereal 不可用）: {e}")
 
+  # 基线：本机可能已经接了真实的外挂设备（App / 雷达 / 摄像头），
+  # 所以"掉线清理"类断言要相对基线判断，而不是绝对等于 0。
+  base = {"extState": 0, "leftDevice": 0, "rightDevice": 0}
+  if watcher is not None:
+    time.sleep(1.5)
+    for key in base:
+      value = watcher.state.get(key)
+      if value is not None:
+        base[key] = value
+    print(f"  基线（注册虚拟设备之前）: {base}")
+
   def loop(seconds, fn):
     end = time.time() + seconds
     while time.time() < end:
@@ -286,16 +297,40 @@ def main():
       report.check("客户端数量(extState) 随注册增加",
                    st.get("extState", 0) >= 1, f"extState={st.get('extState')}")
 
+    # ---- 阶段2.5: 只发 App 心跳，间隔 1.1s（实测 AmapNavi App 的真实节奏）----
+    # 客户端超时如果和心跳周期同量级，客户端会被反复清掉再重新注册，
+    # 表现为外挂客户端数量在 1/2 之间来回跳（旧代码超时 1.0s 时的现象）。
+    print("=== 阶段2.5: App 心跳 1.1s 间隔，客户端不应被超时清掉 ===")
+    min_ext = None
+    end = time.time() + 8.0
+    next_hb = 0.0
+    while time.time() < end:
+      if time.time() >= next_hb:
+        app_heartbeat(app_overtake, app_overtake.port)
+        next_hb = time.time() + 1.1
+      if watcher is not None:
+        ext = watcher.state.get("extState")
+        if ext is not None:
+          min_ext = ext if min_ext is None else min(min_ext, ext)
+      time.sleep(0.05)
+    if watcher is not None:
+      # 虚拟 App 全程在线，数量至少应为 基线 + 1；旧代码（超时 1.0s）会周期性掉回基线
+      report.check("App 心跳 1.1s 期间客户端不超时 (extState 不低于 基线+1)",
+                   min_ext is not None and min_ext >= base["extState"] + 1,
+                   f"基线={base['extState']} 窗口内最小 extState={min_ext}")
+
     # ---- 阶段3: 停止上报，等待超时清理 ----
-    # 客户端超时 1s，lane 服务超时 3s，留足余量后再检查
-    print("=== 阶段3: 停止上报，等待客户端超时(4.5s) ===")
-    time.sleep(4.5)
+    # 雷达/摄像头超时 2s，心跳型客户端 5s，lane 服务 3s，留足余量后再检查
+    print("=== 阶段3: 停止上报，等待客户端超时(7s) ===")
+    time.sleep(7.0)
     if watcher is not None:
       st = dict(watcher.state)
-      report.check("客户端超时后被清理 (leftDevice=0)",
-                   st.get("leftDevice") == 0, f"leftDevice={st.get('leftDevice')}")
-      report.check("客户端数量(extState) 归零",
-                   st.get("extState", -1) == 0, f"extState={st.get('extState')}")
+      report.check(f"客户端超时后被清理 (leftDevice 回到基线 {base['leftDevice']})",
+                   st.get("leftDevice") == base["leftDevice"],
+                   f"leftDevice={st.get('leftDevice')} 基线={base['leftDevice']}")
+      report.check(f"客户端数量(extState) 回到基线 {base['extState']}",
+                   st.get("extState", -1) == base["extState"],
+                   f"extState={st.get('extState')} 基线={base['extState']}")
 
   finally:
     for d in devices:

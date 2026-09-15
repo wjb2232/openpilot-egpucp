@@ -29,7 +29,16 @@ LANE_PORT = 4213
 NAVI_PORT = 7706
 NAVI_REMOTE_PORT = 7705
 
-CLIENT_TIMEOUT_S = 1.0
+# 客户端超时（秒）。
+#   雷达/摄像头是 10~20Hz 的数据流，掉线要尽快发现，但仍要容忍偶发丢包；
+#   App / 转向灯板是心跳型（实测 AmapNavi App 心跳 ~1.0~1.2s），原先统一用 1s
+#   正好卡在临界点上：会在两次心跳之间把客户端清掉再重注册，表现为
+#   "外挂客户端数量在 1 和 2 之间来回跳"。
+CLIENT_TIMEOUT_S = 2.0
+CLIENT_TIMEOUT_HEARTBEAT_S = 5.0
+# 心跳型设备（其余一律按数据流设备处理）
+HEARTBEAT_DEVICES = ("overtake", "app", "navi", "board")
+# 清理线程周期
 CLEAN_INTERVAL_S = 0.2
 
 
@@ -236,7 +245,7 @@ class UdpTransport:
       now = time.time()
       with self.lock:
         active = {ip: info for ip, info in self.clients.items()
-                  if now - info["last_seen"] < CLIENT_TIMEOUT_S}
+                  if now - info["last_seen"] < _client_timeout_s(info)}
         for ip, info in self.clients.items():
           if ip not in active and ip in self.client_active:
             print(f"[Client Timeout] ip={ip}, dt={now - info.get('last_seen', 0):.3f}s")
@@ -263,14 +272,18 @@ class UdpTransport:
       try:
         # 本机 IP 每次循环都要刷新：广播信标和消息里的 "ip" 字段都用它，
         # 而且必须同步给消息构造器，否则 App 收到的 ip 会一直是初始值 0.0.0.0。
+        # gethostbyname 是阻塞式解析，放在 10Hz 热路径上时，一旦 DNS 变慢就会
+        # 卡住整帧（实测本机负载高时会放大雷达数据的到达抖动），降频到 2s 一次，
+        # 只在尚未拿到地址时每帧尝试。
         try:
-          ip_address = socket.gethostbyname(socket.gethostname()) if not PC else get_local_ip()
-          if ip_address != self.local_ip_address:
-            self.local_ip_address = ip_address
-            if self.message_builder is not None:
-              self.message_builder.local_ip_address = ip_address
-            with self.lock:
-              self.clients = {}
+          if frame % 20 == 0 or self.local_ip_address == "0.0.0.0":
+            ip_address = socket.gethostbyname(socket.gethostname()) if not PC else get_local_ip()
+            if ip_address != self.local_ip_address:
+              self.local_ip_address = ip_address
+              if self.message_builder is not None:
+                self.message_builder.local_ip_address = ip_address
+              with self.lock:
+                self.clients = {}
         except Exception as e:
           if (self.shared_data.showDebugLog & 32) > 0:
             print(f"##### get local ip failed: {e}")
@@ -299,9 +312,13 @@ class UdpTransport:
                   if payload is None:
                     payload = self.message_provider(kind).encode('utf-8')
                     cache[kind] = payload
-                  self._sendto(sock, payload, (ip, port))
                   if kind == "navi":
+                    # 业务数据只走主通道 7705。App 端的 4210 只是 overtake 兼容握手，
+                    # 收到的与这里是同一份数据（见 App OvertakeCompat.kt：
+                    # "业务数据仍然只走 7705"），再往上报端口发一份属于同帧重复，去掉。
                     self._sendto(sock, payload, (ip, NAVI_REMOTE_PORT))
+                  else:
+                    self._sendto(sock, payload, (ip, port))
                   if (self.shared_data.showDebugLog & 32) > 0:
                     print(f"sendto {ip} ({kind}): {payload}")
                 except Exception as e:
@@ -330,6 +347,11 @@ class UdpTransport:
       self._sendto(sock, message.encode('utf-8'), (self.broadcast_ip, port))
       if (self.shared_data.showDebugLog & 32) > 0:
         print(f"broadcasting: {self.broadcast_ip}:{port},{message}")
+
+
+def _client_timeout_s(info) -> float:
+  """按设备类型取客户端超时：心跳型设备的上报节奏远慢于雷达/摄像头。"""
+  return CLIENT_TIMEOUT_HEARTBEAT_S if info.get("device") in HEARTBEAT_DEVICES else CLIENT_TIMEOUT_S
 
 
 def refresh_timeouts(info, now):
