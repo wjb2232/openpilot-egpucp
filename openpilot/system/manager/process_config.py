@@ -194,6 +194,10 @@ procs = [
   # carrot_navi permanently owns TCP 7714 and publishes navigation data over cereal.
   PythonProcess("carrot_navi", "openpilot.selfdrive.carrot.carrot_navi", always_run, restart_if_crash=True),
 
+  # amapnavi: 外挂 BSD 模块（含参数配置 Web 服务 8088）+ 车道线视频流服务（8888）
+  PythonProcess("amap_navi", "openpilot.selfdrive.carrot.amapnavi.amap_navi", always_run, restart_if_crash=True),
+  PythonProcess("amap_lane", "openpilot.selfdrive.carrot.amapnavi.lane", always_run, restart_if_crash=True),
+
   PythonProcess("carrot_server", "openpilot.selfdrive.carrot.carrot_server", always_run, enabled=not CARROT_WEB_EXTERNAL),
   PythonProcess("cweb_push", "openpilot.selfdrive.carrot.cweb_push", always_run, enabled=not PC),
   PythonProcess("carrot_cluster", "openpilot.selfdrive.carrot.cluster_autorun", enable_cluster_hud, restart_if_crash=True),

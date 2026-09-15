@@ -55,6 +55,9 @@ selfdrive/ui/translations/alerts_generated.h
 selfdrive/ui/translations/tmp
 selfdrive/test/longitudinal_maneuvers/out
 selfdrive/car/tests/cars_dump
+# amapnavi 运行时生成的参数文件（UnifiedParams，由 config.py 自动创建）
+# 不带路径分隔符，任意目录层级都匹配
+nav_params.json
 system/camerad/camerad
 system/camerad/test/ae_gray_test
 

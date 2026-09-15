@@ -105,6 +105,7 @@ _services: dict[str, tuple] = {
   "qRoadEncodeData": (False, 20., None, QueueSize.BIG),
 
   "carrotMan": (True, 0.),
+  "amapNavi": (True, 0.),
   "navInstructionCarrot": (True, 1., 10),
   "carrotNavi": (True, 2.),
   "carrotNaviMedia": (False, 20., None, QueueSize.BIG),

@@ -219,7 +219,23 @@ struct CarrotNaviMedia @0xf35cc4560bbf6ec2 {
 	payload @14 :Data;
 }
 
-struct CustomReserved3 @0xda96579883444c35 {
+# amapnavi: 외부 라이다/카메라 BSD 모듈 상태 (selfdrive/carrot/amapnavi)
+struct AmapNavi @0xda96579883444c35 {
+	leftBlind @0 :Int32;
+	rightBlind @1 :Int32;
+	lineValid @2 :Bool;
+	leftLine @3 :Int32;
+	rightLine @4 :Int32;
+	leftDevice @5 :Int32;
+	rightDevice @6 :Int32;
+	lfDrelValid @7 :Int32;
+	lbDrelValid @8 :Int32;
+	rfDrelValid @9 :Int32;
+	rbDrelValid @10 :Int32;
+	lfDrel @11 :Int32;
+	lbDrel @12 :Int32;
+	rfDrel @13 :Int32;
+	rbDrel @14 :Int32;
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {
