@@ -171,12 +171,38 @@ class AmapNaviServ:
         clients = self.transport.snapshot_clients()
         if clients:
           self._aggregate_clients(clients)
+        else:
+          # 所有外挂设备都掉线了：必须清空派生状态，
+          # 否则雷达/摄像头在线标志与盲区标志会一直保持掉线前的值，
+          # 造成设备断电后仍然持续误报盲区。
+          self._clear_client_state()
 
         self.public_amap_navi()
         rk.keep_time()
       except Exception as e:
         print(f"_data_deal_thread error: {e}")
         time.sleep(1)
+
+  def _clear_client_state(self):
+    """清空所有由外挂设备上报派生出来的状态（设备全部掉线时调用）。"""
+    shared = self.shared_data
+    shared.clear_lidar_distances()
+
+    shared.lidar_l = shared.lidar_r = False
+    shared.camera_l = shared.camera_r = False
+    shared.left_blind = shared.right_blind = False
+    shared.lidar_lblind = shared.lidar_rblind = False
+    shared.lidar_lfblind = shared.lidar_lbblind = False
+    shared.lidar_rfblind = shared.lidar_rbblind = False
+    shared.lidar_car_lblind = shared.lidar_car_rblind = False
+
+    for corner in CORNERS:
+      setattr(shared, f"main_{corner}_drel", None)
+      setattr(shared, f"main_{corner}_xrel", None)
+      setattr(shared, f"{corner}_vrel", None)
+      # 关掉危险标志并复位跟踪器，避免掉线前的残值继续参与风险评估
+      self.packet_handler.object_detected[corner] = False
+      self.packet_handler.trackers[corner].reset()
 
   # ------------------------------------------------------------------ 汇总
   def _aggregate_clients(self, clients):
