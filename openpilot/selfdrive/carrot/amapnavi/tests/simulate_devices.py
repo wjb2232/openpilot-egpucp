@@ -112,7 +112,7 @@ class AmapNaviWatcher:
 
   FIELDS = ("leftBlind", "rightBlind", "leftLine", "rightLine", "lineValid",
             "leftDevice", "rightDevice", "lfDrel", "lbDrel", "rfDrel", "rbDrel",
-            "lfDrelValid", "lbDrelValid", "rfDrelValid", "rbDrelValid")
+            "lfDrelValid", "lbDrelValid", "rfDrelValid", "rbDrelValid", "extState")
 
   def __init__(self):
     import openpilot.cereal.messaging as messaging
@@ -283,14 +283,19 @@ def main():
       report.check("距离字段回填",
                    st.get("lfDrel") not in (None, 0) and st.get("lfDrelValid") == 1,
                    f"lfDrel={st.get('lfDrel')} valid={st.get('lfDrelValid')}")
+      report.check("客户端数量(extState) 随注册增加",
+                   st.get("extState", 0) >= 1, f"extState={st.get('extState')}")
 
     # ---- 阶段3: 停止上报，等待超时清理 ----
-    print("=== 阶段3: 停止上报，等待客户端超时(3s) ===")
-    time.sleep(3.0)
+    # 客户端超时 1s，lane 服务超时 3s，留足余量后再检查
+    print("=== 阶段3: 停止上报，等待客户端超时(4.5s) ===")
+    time.sleep(4.5)
     if watcher is not None:
       st = dict(watcher.state)
       report.check("客户端超时后被清理 (leftDevice=0)",
                    st.get("leftDevice") == 0, f"leftDevice={st.get('leftDevice')}")
+      report.check("客户端数量(extState) 归零",
+                   st.get("extState", -1) == 0, f"extState={st.get('extState')}")
 
   finally:
     for d in devices:
