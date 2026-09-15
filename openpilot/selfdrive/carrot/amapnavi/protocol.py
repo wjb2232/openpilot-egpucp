@@ -64,12 +64,13 @@ class PacketHandler:
         ctrl = json_obj.get("ctrl")
         if ctrl == "blinker":
           if "state" in json_obj:
-            state = json_obj.get("state")
-            if state == "left":
+            # App 端发的是大写 "LEFT"/"RIGHT"，这里统一按小写比较
+            state = str(json_obj.get("state", "")).strip().lower()
+            if state in ("left", "l"):
               self.shared_data.blinker_ctrl = BLINKER_LEFT
               self.blinker_ctrl_alive = True
               self.blinker_ctrl_time = now
-            elif state == "right":
+            elif state in ("right", "r"):
               self.shared_data.blinker_ctrl = BLINKER_RIGHT
               self.blinker_ctrl_alive = True
               self.blinker_ctrl_time = now
@@ -90,7 +91,7 @@ class PacketHandler:
   def update_blinker(self, json_obj, now):
     if "blinker" not in json_obj:
       return
-    val = json_obj.get("blinker")
+    val = str(json_obj.get("blinker", "")).strip().lower()
     if val in ("left", "stockleft"):
       self.shared_data.ext_blinker = BLINKER_LEFT
     elif val in ("right", "stockright"):

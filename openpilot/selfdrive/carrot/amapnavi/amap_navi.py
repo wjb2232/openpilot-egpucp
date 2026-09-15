@@ -74,7 +74,8 @@ class AmapNaviServ:
                                       listen_port=LISTEN_PORT, lane_port=LANE_PORT, navi_port=NAVI_PORT)
     self.transport = UdpTransport(self.shared_data, self.params,
                                   packet_handler=self.packet_handler,
-                                  message_provider=self.builder.build)
+                                  message_provider=self.builder.build,
+                                  message_builder=self.builder)
 
     # 去抖（延时释放）
     self.corner_counters = {c: OccupancyCounter(hold_s=1.0, dt=DT_BROADCAST) for c in CORNERS}

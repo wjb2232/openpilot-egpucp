@@ -68,11 +68,13 @@ def get_local_ip():
 class UdpTransport:
   """管理所有 UDP 端点与客户端生命周期。"""
 
-  def __init__(self, shared_data, params, packet_handler, message_provider):
+  def __init__(self, shared_data, params, packet_handler, message_provider, message_builder=None):
     self.shared_data = shared_data
     self.params = params
     self.packet_handler = packet_handler
     self.message_provider = message_provider
+    # 消息构造器的 local_ip_address 需要跟着本机 IP 一起更新
+    self.message_builder = message_builder
 
     self.lock = threading.Lock()
     self.clients = {}          # {ip: info}
@@ -259,17 +261,25 @@ class UdpTransport:
 
     while True:
       try:
+        # 本机 IP 每次循环都要刷新：广播信标和消息里的 "ip" 字段都用它，
+        # 而且必须同步给消息构造器，否则 App 收到的 ip 会一直是初始值 0.0.0.0。
+        try:
+          ip_address = socket.gethostbyname(socket.gethostname()) if not PC else get_local_ip()
+          if ip_address != self.local_ip_address:
+            self.local_ip_address = ip_address
+            if self.message_builder is not None:
+              self.message_builder.local_ip_address = ip_address
+            with self.lock:
+              self.clients = {}
+        except Exception as e:
+          if (self.shared_data.showDebugLog & 32) > 0:
+            print(f"##### get local ip failed: {e}")
+
         clients = self.snapshot_clients()
         active = list(clients.keys())
 
         if frame % 20 == 0 or active:
           try:
-            ip_address = socket.gethostbyname(socket.gethostname()) if not PC else get_local_ip()
-            if ip_address != self.local_ip_address:
-              self.local_ip_address = ip_address
-              clients = {}
-              with self.lock:
-                self.clients = {}
 
             if active:
               cache = {}
