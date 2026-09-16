@@ -171,6 +171,12 @@ class StockFrontBlindMonitor:
   """带迟滞的原车前侧盲区监视器（左右各一份状态）。"""
 
   def __init__(self, cfg: StockFrontBlindConfig | None = None, params=unified_params):
+    # 容错：把参数对象当 cfg 位置参数传进来时自动纠正（历史踩过的坑——
+    # self.cfg 成了 UnifiedParams，每帧在 cfg.enable 上抛 AttributeError，
+    # 而本模块跑在 amapnavi 主数据循环里，异常会连带跳过该帧后续所有逻辑）。
+    if cfg is not None and not isinstance(cfg, StockFrontBlindConfig):
+      params = cfg
+      cfg = None
     self.params = params
     self.cfg = cfg or StockFrontBlindConfig.from_params(params)
     self._sides = {"left": _SideState(), "right": _SideState()}

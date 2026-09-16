@@ -102,7 +102,10 @@ class AmapNaviServ:
     self._update_advisor_config()
 
     # 原车前雷达的「前侧盲区」（左右相邻车道是否有妨碍变道的目标）
-    self.stock_front_blind = StockFrontBlindMonitor(self.params)
+    # 注意：StockFrontBlindMonitor 的第一个位置参数是 cfg，参数对象必须用关键字传，
+    # 否则会把 cfg 当成 UnifiedParams，每帧抛 AttributeError（异常被
+    # _data_deal_thread 吞掉后，这一帧后面的实线判定/距离汇总等都会被跳过）。
+    self.stock_front_blind = StockFrontBlindMonitor(params=self.params)
 
     self.transport.start()
     threading.Thread(target=self._data_deal_thread, daemon=True).start()

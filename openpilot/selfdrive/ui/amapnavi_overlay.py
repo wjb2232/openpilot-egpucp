@@ -48,6 +48,17 @@ UI 代码必须重启 manager / 设备（``sudo reboot``）才会生效；只重
 ``amapNavi.lFrontBlind`` / ``rFrontBlind`` 读 —— 由
 ``selfdrive/carrot/amapnavi/stock_front_blind.py`` 用原车前雷达目标算出后下发；
 若将来 MetaData 补上该字段，两者按 OR 合并（见 :func:`_front_blind`）。
+
+**第一行还显示原车雷达的侧前距离**：有 ``radarState.leadLeft`` / ``leadRight``
+目标时，画"浅色底 + 粗黄圈"并在旁边显示它的 ``dRel``（米，一位小数，黄色带
+黑底，与第二行四角激光距离同格式）；判定为盲区时仍显示原来的黄圆 + 红箭头
+图标。见 :func:`_radar_side_leads`。
+
+**图标配色统一为全不透明**（半透明在花背景与夜景下都显淡，纯蓝在夜里尤其看不清，
+已提亮一档）；「有数据但不判盲区」的样式（第一行前雷达、第二行激光雷达都是
+:func:`_circle_ring`）＝ 不透明浅色底 + 16px 粗彩色环，浅底色固定所以对比度
+不随摄像头画面变化；盲区实心圆（:func:`_icon_solid`）直接用不透明填充色，
+不再叠深色描边/底衬。
 """
 
 import time
@@ -88,25 +99,37 @@ BARRIER_PURPLE = _c(138, 43, 226, 60)
 BARRIER_CYAN = _c(0, 255, 255, 60)
 BARRIER_PINK = _c(233, 37, 227, 60)
 
-# 圆形图标（源端 alpha=150）
-ICON_RED = _c(255, 0, 0, 150)
-ICON_YELLOW = _c(255, 215, 0, 150)
-ICON_BLUE = _c(0, 0, 255, 150)
-ICON_PURPLE = _c(138, 43, 226, 150)
-ICON_PINK = _c(233, 37, 227, 150)
+# 圆形图标（全不透明：半透明会显得颜色很淡，花背景和夜里都看不清）
+ICON_RED = _c(255, 0, 0, 255)
+ICON_YELLOW = _c(255, 215, 0, 255)
+# 纯蓝 (0,0,255) 在夜间全黑背景上几乎看不出来，整体提亮一档
+ICON_BLUE = _c(0, 120, 255, 255)
+ICON_PURPLE = _c(138, 43, 226, 255)
+ICON_PINK = _c(233, 37, 227, 255)
+
+# 「有雷达数据但不判盲区」时的样式：不透明浅色底 + 粗圈。
+# 圈色固定落在浅底上，不受摄像头画面影响（比细环/双环稳得多）。
+# 盲区实心圆则直接用不透明填充色，不再加黑描边/底衬——实心圆上用不上，也不好看。
+RING_WIDTH = 16
+RING_BACKDROP = _c(238, 238, 238, 255)
 
 # 线条 / 箭头
 LINE_YELLOW = _c(255, 255, 0, 255)
-LINE_BLUE = _c(0, 0, 255, 255)
-ARROW_RED = _c(255, 0, 0, 200)
-ARROW_YELLOW = _c(255, 215, 0, 200)
+# 同 ICON_BLUE，提亮后夜里才看得见
+LINE_BLUE = _c(0, 120, 255, 255)
+ARROW_RED = _c(255, 0, 0, 255)
+ARROW_YELLOW = _c(255, 215, 0, 255)
 DIST_TEXT_YELLOW = _c(255, 255, 0, 255)
 
 # ------------------------------------------------------------------ 布局
 CIRCLE_RADIUS = 46
-VERTICAL_SPACING = 100
+# 三行图标（原车前盲区 / 激光雷达 / 原车后盲区）的纵向间距。
+# 行间实际留白 = VERTICAL_SPACING - 2 * CIRCLE_RADIUS：120 时是 28px，
+# 按"缩小三分之一"改成 20px（112 - 92）。
+VERTICAL_SPACING = 112
 HORIZONTAL_OFFSET = 150
-TOP_Y = 10
+# 第一行圆心 = TOP_Y + CIRCLE_RADIUS，顶部留白 50px
+TOP_Y = 50
 ARROW_HEAD_WIDTH = 46
 ARROW_HEAD_LENGTH = 30
 ARROW_GAP = 5
@@ -220,6 +243,30 @@ def _front_blind(sm) -> dict:
       meta = sm['modelV2'].meta
       out["left"] = out["left"] or bool(getattr(meta, "leftFrontBlind", False))
       out["right"] = out["right"] or bool(getattr(meta, "rightFrontBlind", False))
+  except Exception:
+    pass
+  return out
+
+
+def _radar_side_leads(sm) -> dict:
+  """原车前雷达的侧向目标（``radarState.leadLeft`` / ``leadRight``）距离。
+
+  UI 的 SubMaster 本来就订阅了 ``radarState``（渲染器画原车盲区护栏时在用），
+  这里直接取用，单位就是米，无需经 amapNavi 中转。
+
+  :return: ``{"left": (是否有目标, 纵向距离 m), "right": (...)}``
+  """
+  out = {"left": (False, 0.0), "right": (False, 0.0)}
+  try:
+    # 注意用 alive 而不是 valid：radarState.valid 反映的是雷达 CAN 错误状态，
+    # 经常为 False（本车前雷达走的是另一条链路），但 leadLeft/leadRight 本身
+    # 仍然有效——用 valid 当门控会导致距离永远不显示。目标有没有车看 status。
+    if sm.alive['radarState'] or sm.valid['radarState']:
+      radar = sm['radarState']
+      for side, key in (("left", "leadLeft"), ("right", "leadRight")):
+        lead = getattr(radar, key, None)
+        if lead is not None and bool(getattr(lead, "status", False)):
+          out[side] = (True, float(getattr(lead, "dRel", 0.0) or 0.0))
   except Exception:
     pass
   return out
@@ -376,14 +423,35 @@ def _cached_int_param(key: str, default: int, ttl: float = 1.0) -> int:
   return value
 
 
+def _icon_solid(cx, cy, r, fill) -> None:
+  """不透明的实心图标圆（盲区状态用）。
+
+  颜色本身已是全不透明，直接画即可：之前在实心圆上叠的深色描边/底衬
+  既看不出效果也不好看，已去掉。
+  """
+  rl.draw_circle(int(cx), int(cy), int(r), fill)
+
+
+def _circle_ring(cx, cy, r, color, width: int = RING_WIDTH) -> None:
+  """不透明浅色底 + 粗彩色环（非盲区但有雷达目标时用）。
+
+  浅底色固定，圈的对比度不随摄像头画面变化；粗圈比原来的细双环醒目。
+  """
+  rl.draw_circle(int(cx), int(cy), int(r), RING_BACKDROP)
+  center = rl.Vector2(float(cx), float(cy))
+  rl.draw_ring(center, max(0.0, r - width), r, 0, 360, 48, color)
+
+
 # ------------------------------------------------------------------ 顶部图标面板
 def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None = None) -> None:
   """在屏幕顶部中央绘制盲区图标与四角距离（对应源端 ``draw()`` 的圆形部分）。
 
   三行布局（与源端一致，行数固定以保证图标位置稳定）：
 
-  * 第一行  原车前盲区（黄圆 + 向上红箭头）
-  * 第二行  雷达/摄像头盲区圆 + 箭头 + 在线双环 + 实线黄条，两侧为四角距离
+  * 第一行  原车前盲区（黄圆 + 向上红箭头）；若只有原车雷达侧前目标、未判为盲区，
+            则画"浅色底 + 粗黄圈"（不带箭头），并在圆圈旁显示该目标的纵向距离
+            （格式/颜色/黑底与第二行的四角激光距离一致）
+  * 第二行  雷达/摄像头盲区圆 + 箭头 + 在线"浅色底 + 粗蓝圈" + 实线黄条，两侧为四角距离
   * 第三行  原车后盲区（红圆 + 向下黄箭头）
   """
   view = read_amapnavi(sm)
@@ -395,10 +463,12 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
 
   stock = _stock_blindspots(sm)
   front = _front_blind(sm)
+  leads = _radar_side_leads(sm)
 
   nothing_to_show = not (
     view.left_blind or view.right_blind or view.left_device or view.right_device
     or view.has_distance or stock["left"] or stock["right"] or front["left"] or front["right"]
+    or leads["left"][0] or leads["right"][0]
   )
   if nothing_to_show:
     return
@@ -407,15 +477,30 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
   r = CIRCLE_RADIUS
   top_y = TOP_Y
 
-  # ---------------- 第一行：原车前盲区 ----------------
+  # ---------------- 第一行：原车前盲区 / 原车雷达侧前距离 ----------------
   for side in SIDES:
-    if not front[side]:
-      continue
-    cx = center_x - HORIZONTAL_OFFSET if side == "left" else center_x + HORIZONTAL_OFFSET
+    is_left = side == "left"
+    sign = -1 if is_left else 1
+    cx = center_x + sign * HORIZONTAL_OFFSET
     cy = top_y + r
-    rl.draw_circle(int(cx), int(cy), r, ICON_YELLOW)
-    if show_lane_info >= 1:
-      _arrow_center_up(cx, cy, ARROW_RED)
+    lead_valid, lead_dist = leads[side]
+
+    if front[side]:
+      # 判定为盲区 → 原来的图标（黄圆 + 向上红箭头）
+      _icon_solid(cx, cy, r, ICON_YELLOW)
+      if show_lane_info >= 1:
+        _arrow_center_up(cx, cy, ARROW_RED)
+    elif lead_valid:
+      # 有原车雷达侧前目标但未判为盲区 → 浅色底 + 粗黄圈（不带箭头）
+      _circle_ring(cx, cy, r, LINE_YELLOW)
+
+    if lead_valid:
+      # 距离文字：格式/颜色/黑底与第二行四角激光距离保持一致
+      text_x = cx + sign * (r + DIST_TEXT_OFFSET_X)
+      align = "right_center" if is_left else "left_center"
+      _draw_text_with_bg(
+        f"{lead_dist:.1f}", text_x, cy, DIST_FONT_SIZE, DIST_TEXT_YELLOW, align, font,
+      )
   top_y += VERTICAL_SPACING
 
   # ---------------- 第二行：距离 + 雷达/摄像头图标 ----------------
@@ -444,7 +529,7 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
     # 雷达 / 摄像头盲区圆圈
     blind = view.blind(side)
     if blind & ~BLIND_SOLID_LINE:
-      rl.draw_circle(int(cx), int(cy), r, icon_color(blind))
+      _icon_solid(cx, cy, r, icon_color(blind))
       if blind & BLIND_FRONT:
         _arrow_up(cx, cy, ARROW_RED, ARROW_GAP)
       if blind & BLIND_REAR:
@@ -452,10 +537,9 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
       if not (blind & (BLIND_FRONT | BLIND_REAR)):
         _arrow_side(cx, cy, is_left, ARROW_RED)
     elif view.device(side) & DEVICE_LIDAR:
-      # 设备在线但无盲区：外蓝内黄双环（源端为 10px 描边的两个同心圆）
-      center = rl.Vector2(float(cx), float(cy))
-      rl.draw_ring(center, r - 10, r, 0, 360, 32, LINE_BLUE)
-      rl.draw_ring(center, max(0.0, r - 20), max(1.0, r - 10), 0, 360, 32, LINE_YELLOW)
+      # 设备在线但无盲区：浅色底 + 粗蓝圈（原来是外蓝内黄细双环，细环在花
+      # 背景上容易糊；改成浅底粗圈后，圈色永远落在固定底色上）
+      _circle_ring(cx, cy, r, LINE_BLUE)
 
     # 实线：靠近车辆一侧的黄色竖条
     if blind & BLIND_SOLID_LINE:
@@ -469,7 +553,7 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
       continue
     cx = center_x - HORIZONTAL_OFFSET if side == "left" else center_x + HORIZONTAL_OFFSET
     cy = top_y + r
-    rl.draw_circle(int(cx), int(cy), r, ICON_RED)
+    _icon_solid(cx, cy, r, ICON_RED)
     if show_lane_info >= 1:
       _arrow_center_down(cx, cy, ARROW_YELLOW)
 
