@@ -38,6 +38,7 @@ class TrackerConfig:
   max_speed_step: float = 40.0      # 单帧相对速度跳变上限 (m/s)，超出视为异常
   lost_timeout_s: float = 0.5       # 数据丢失多久后彻底重置
   max_predict_s: float = 1.0        # 单次预测最大外推时间
+  max_rejects: int = 3              # 连续多少次测量被剔除后视为新目标并重新初始化
 
 
 class TrackedTarget:
@@ -57,6 +58,7 @@ class TrackedTarget:
     self._var_vv = 0.0        # 速度方差
     self._var_dv = 0.0        # 协方差
     self._last_t = None
+    self._rejects = 0         # 连续被剔除的测量次数
 
   @property
   def valid(self) -> bool:
@@ -97,9 +99,16 @@ class TrackedTarget:
     implied_speed = innovation / dt
     if (abs(implied_speed) > cfg.max_speed_step or
         innovation ** 2 > (cfg.gate_sigma ** 2) * max(s, 1e-9)):
-      # 只用预测值，测量被拒绝
+      # 只用预测值，测量被拒绝。
+      # 但连续被拒说明目标已经换了一个（新目标进入 / 距离跳变 / 跟踪换了对象），
+      # 此时旧状态没有意义，必须重新初始化——否则距离会永久卡在旧值上，
+      # 表现为"旁边明明有车却一直不报盲区"。
+      self._rejects += 1
+      if self._rejects >= cfg.max_rejects:
+        self._initialize(dist_mm, t_ms)
       return (self._dist_m * 1000.0, self._speed)
 
+    self._rejects = 0
     k_d = self._var_dd / s
     k_v = self._var_dv / s
     self._dist_m += k_d * innovation
@@ -148,6 +157,9 @@ class RiskResult:
   clearance_m: float = 0.0     # 预测窗口内的最小纵向间距
   ttc_s: float | None = None   # 碰撞时间，非接近目标为 None
   margin: float = 999.0        # 相对安全余量 (>1 安全，<1 危险)
+  danger_dist_m: float = 0.0   # 本次使用的危险距离 (m)
+  closing_mps: float = 0.0     # 接近速度 (m/s)
+  horizon_s: float = 0.0       # 本次使用的预测窗口 (s)
 
 
 @dataclass
@@ -212,6 +224,75 @@ def assess_side_risk(drel_mm, vrel_mps, v_ego_mps, safe_distance_m,
     clearance_m=clearance,
     ttc_s=ttc,
     margin=clearance / safe_distance_m if safe_distance_m > 0 else 999.0,
+  )
+
+
+def side_object_risky(drel_mm, vrel_mps, v_ego_mps,
+                      vrel_time_s=4.0, drel_time_s=-5.0,
+                      ttc_threshold_s=2.5, min_clearance_m=4.0,
+                      latch: bool = False, release_margin: float = 1.4) -> RiskResult:
+  """cpv9-dev 口径的侧向车辆风险评估（前方 / 后方通用）。
+
+  与 :func:`assess_side_risk` 的区别（这两个参数原来被读进来但从未使用）：
+
+  * 预测窗口用 **vrel 时距**（``LidarFrontVRelDistTime`` / ``LidarBehindVRelDistTime``），
+    也就是 cpv9-dev 的 ``time_horizon``；
+  * 危险距离用 **drel 时距**（``LidarFrontVDistTime`` / ``LidarBehindVDistTime``），
+    正值 = 基准速度 × 时距，负值 = 绝对距离（m）；对应 cpv9-dev 的 ``min_drel_scale``。
+    基准速度按方位区分（与 nav_params 文档一致，B 方案）：
+
+    * 前方 —— **本车速度**（风险来自我追它）；
+    * 后方 —— **对方速度** ``v_ego + vrel``（风险来自它追我，后车越快要求越大）；
+  * 判据（与 cpv9-dev 一致）::
+
+        接近速度 closing = 前方 max(-vrel, 0) / 后方 max(vrel, 0)
+        未来距离 future  = |d| - closing * 窗口
+        危险 = future < 危险距离  或  |d| < 危险距离   （另加 TTC 兜底）
+
+  :param latch:            True 表示本角上一帧已判定危险，此时用 ``release_margin``
+                           放宽退出条件（迟滞），避免在阈值附近来回抖动。
+  :param release_margin:   迟滞退出倍数：已报警时，间距要大于 ``危险距离×该值``
+                           才允许清除。
+  """
+  if drel_mm is None or vrel_mps is None or v_ego_mps is None:
+    return RiskResult(False)
+
+  d = float(drel_mm) / 1000.0
+  d_abs = abs(d)
+  v_ego = max(0.0, float(v_ego_mps))
+  v_rel = float(vrel_mps)
+
+  # 危险距离：正=时距，负=绝对距离（cpv9-dev 的 min_drel_scale 语义）
+  #   基准速度：前方用本车速度；后方用对方速度(v_ego + vrel)，后车越快要求越大
+  t_drel = float(drel_time_s or 0.0)
+  if t_drel > 0:
+    basis_speed = v_ego if d > 0 else max(0.0, v_ego + v_rel)
+    danger_dist = max(basis_speed * t_drel, min_clearance_m)
+  else:
+    danger_dist = max(abs(t_drel), min_clearance_m)
+
+  # 接近速度：前方目标在被追上，后方目标在追上来
+  closing = max(-v_rel, 0.0) if d > 0 else max(v_rel, 0.0)
+
+  horizon = max(0.5, float(vrel_time_s or 0.0))
+  future_dist = max(0.0, d_abs - closing * horizon)
+
+  ttc = d_abs / closing if closing > 0.05 else None
+  ttc_risk = ttc is not None and ttc < ttc_threshold_s
+
+  # 迟滞：已报警时要求间距退到更远才清除
+  limit = danger_dist * release_margin if latch else danger_dist
+  risky = bool(future_dist < limit or d_abs < limit or ttc_risk)
+  clearance = min(d_abs, future_dist)
+
+  return RiskResult(
+    risky=risky,
+    clearance_m=clearance,
+    ttc_s=ttc,
+    margin=(clearance / danger_dist) if danger_dist > 0 else 999.0,
+    danger_dist_m=danger_dist,
+    closing_mps=closing,
+    horizon_s=horizon,
   )
 
 

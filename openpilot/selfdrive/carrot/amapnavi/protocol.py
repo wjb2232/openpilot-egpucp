@@ -11,13 +11,17 @@ from openpilot.selfdrive.carrot.amapnavi.config import unified_params
 from openpilot.selfdrive.carrot.amapnavi.blindspot import (
   TrackedTarget,
   TrackerConfig,
-  assess_side_risk,
-  resolve_safe_distance,
+  side_object_risky,
 )
 from openpilot.selfdrive.carrot.amapnavi.shared_state import BLINKER_LEFT, BLINKER_NONE, BLINKER_RIGHT
 
 # 四个角的标识
 CORNERS = ("lf", "lb", "rf", "rb")
+
+# 某个角多久没有新测量就复位它的危险标志（秒）。
+# 与距离字段的超时（1s）保持一致：距离没了，危险标志也必须跟着消失，
+# 否则 UI 上会出现"距离不显示但盲区图标一直亮"的残留。
+CORNER_DATA_TIMEOUT_S = 1.0
 
 DISTANCE_FIELDS = ("lf_drel", "lb_drel", "rf_drel", "rb_drel",
                    "lf_xrel", "lb_xrel", "rf_xrel", "rb_xrel")
@@ -38,6 +42,10 @@ class PacketHandler:
     self.trackers = {corner: TrackedTarget(cfg) for corner in CORNERS}
     # 每个角的原始危险标志（未经去抖）
     self.object_detected = {corner: False for corner in CORNERS}
+    # 每个角最后一次拿到有效测量的时刻（monotonic），用于数据超时复位
+    self.last_measured_mono = {corner: None for corner in CORNERS}
+    # 迟滞：上一帧该角是否已判定危险
+    self.risk_latch = {corner: False for corner in CORNERS}
 
     # 由外部（AmapNaviServ）按参数刷新
     self.min_front_drel_vego_time = 3.0
@@ -242,14 +250,21 @@ class PacketHandler:
         return
       d_mm, v_mps = result
       setattr(shared, f"{corner}_vrel", v_mps)
+      self.last_measured_mono[corner] = time.monotonic()   # 有测量：刷新新鲜度
 
-      time_param = (self.min_behind_drel_vego_time if behind
-                    else self.min_front_drel_vego_time)
-      safe_distance = resolve_safe_distance(time_param, v_ego or 0.0, self.min_clearance_m)
-      self.object_detected[corner] = assess_side_risk(
-        d_mm, v_mps, v_ego, safe_distance,
-        horizon_s=self.risk_horizon_s, ttc_threshold_s=self.ttc_threshold_s,
-      ).risky
+      # 前方/后方各自使用"速度差时距"和"距离时距"（与 cpv9-dev 一致）
+      vrel_time = (self.min_behind_vrel_vego_time if behind
+                   else self.min_front_vrel_vego_time)
+      drel_time = (self.min_behind_drel_vego_time if behind
+                   else self.min_front_drel_vego_time)
+      res = side_object_risky(
+        d_mm, v_mps, v_ego,
+        vrel_time_s=vrel_time, drel_time_s=drel_time,
+        ttc_threshold_s=self.ttc_threshold_s, min_clearance_m=self.min_clearance_m,
+        latch=self.risk_latch[corner],
+      )
+      self.risk_latch[corner] = res.risky
+      self.object_detected[corner] = bool(res.risky)
 
     if detect_side & 1:
       if lidar_id in (0, 1):
@@ -261,6 +276,23 @@ class PacketHandler:
         risky("rf", self._debounce_pair(values["rf_drel"], old_info.get("rf_drel", None)), False)
       if lidar_id in (0, 2):
         risky("rb", self._debounce_pair(values["rb_drel"], old_info.get("rb_drel", None)), True)
+
+  def expire_corners(self, timeout_s: float = CORNER_DATA_TIMEOUT_S) -> None:
+    """数据超时复位：某角超过 ``timeout_s`` 没有新测量就清掉它的危险标志。
+
+    必须在每帧的评估循环里调用（设备完全静默时一个包都不会来，
+    那时没有任何机会去写标志，只能靠这里按时间复位）。
+    """
+    now_mono = time.monotonic()
+    for corner in CORNERS:
+      last = self.last_measured_mono.get(corner)
+      if last is None or (now_mono - last) <= timeout_s:
+        continue
+      if self.object_detected[corner] or self.risk_latch[corner]:
+        self.object_detected[corner] = False
+        self.risk_latch[corner] = False
+        self.trackers[corner].reset()
+        setattr(self.shared_data, f"{corner}_vrel", None)
 
   @staticmethod
   def _debounce_pair(value, old_value):

@@ -106,10 +106,25 @@ class NaviMessageBuilder:
       msg['lidar_lbblind'] = shared.lidar_lbblind
       msg['lidar_rfblind'] = shared.lidar_rfblind
       msg['lidar_rbblind'] = shared.lidar_rbblind
+      # 侧向判定阈值：下发给 App，让 App 的自算判据与 CP 同源（避免两套参数各调各的）。
+      # 单位与网页参数一致（x0.1）：正=时距(s)，负=绝对距离(m)。
+      msg['lidar_front_vdist_time'] = unified_params.get_int("LidarFrontVDistTime")
+      msg['lidar_front_vrel_time'] = unified_params.get_int("LidarFrontVRelDistTime")
+      msg['lidar_behind_vdist_time'] = unified_params.get_int("LidarBehindVDistTime")
+      msg['lidar_behind_vrel_time'] = unified_params.get_int("LidarBehindVRelDistTime")
       # 综合盲区（车道线 / 车身 / 激光 / 摄像头）：App 用它判定"禁止变道"，
       # 与上面的纯激光标志分开，避免把"右侧实线/摄像头"显示成"右后激光有车"。
       msg['blind_l'] = shared.left_blindspot_combined()
       msg['blind_r'] = shared.right_blindspot_combined()
+      # 综合盲区的分解标志：摄像头 / 车身 / 车道实线。
+      # 没有这些字段时 App 只能把"综合盲区"笼统地标成"摄像头盲区"，
+      # 于是"CP 判的实线""车身盲区"都会被误显示成摄像头（实车反馈的问题）。
+      msg['blind_camera_l'] = bool(shared.left_blind)
+      msg['blind_camera_r'] = bool(shared.right_blind)
+      msg['blind_car_l'] = bool(shared.lidar_car_lblind)
+      msg['blind_car_r'] = bool(shared.lidar_car_rblind)
+      msg['blind_lane_l'] = bool(shared.left_lane_blind)
+      msg['blind_lane_r'] = bool(shared.right_lane_blind)
 
       for field in DISTANCE_FIELDS:
         table = getattr(shared, field)

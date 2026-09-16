@@ -44,96 +44,154 @@ ADB_CANDIDATES = (
   "adb",
 )
 
-CARD_IDS = ("tvRadarLeftFront", "tvRadarFront", "tvRadarRightFront",
-            "tvRadarLeftRear", "tvRadarRightRear")
+# 界面上 10 个卡片的 id（布局见 App 的 activity_main.xml）
+CARD_IDS = ("tvRadarMmwLeft", "tvRadarLidarLeftFront", "tvRadarLidarLeftRear",
+            "tvRadarFront", "tvRadarEgo",
+            "tvRadarMmwRight", "tvRadarLidarRightFront", "tvRadarLidarRightRear",
+            "tvRadarLeftBlock", "tvRadarRightBlock")
 
 # ---------------------------------------------------------------- 场景表
-# kind: payload 里除固定信封外的键；expect: 卡片期望文本(子串匹配；None 表示不断言)
+#   payload   : 除固定信封外的键(键名与 NaviMessageBuilder.build_navi 一致)
+#   expect    : 卡片期望文本(子串匹配；str 或 list；缺省表示不断言)
+#   not_expect: 断言不应出现的文本
+#   卡片对应：左列=原车毫米波(tvRadarMmwLeft)/激光前(tvRadarLidarLeftFront)/激光后(tvRadarLidarLeftRear)
+#             中列=正前车(tvRadarFront)、本车(tvRadarEgo)
+#             右列同左列；第 4 行=是否禁止变道(tvRadarLeftBlock/tvRadarRightBlock)
 SCENARIOS = [
   dict(
-    name="clear", desc="全清: 四角无目标、无盲区",
+    name="clear", desc="全清: 全部无目标, 左右都允许变道",
     payload={},
-    expect={"tvRadarFront": "无目标", "tvRadarLeftFront": "无目标",
-            "tvRadarRightFront": "无目标", "tvRadarLeftRear": "无目标",
-            "tvRadarRightRear": "无目标"},
+    expect={"tvRadarFront": "无目标", "tvRadarMmwLeft": "无目标",
+            "tvRadarLidarLeftFront": "无目标", "tvRadarLidarLeftRear": "无目标",
+            "tvRadarMmwRight": "无目标", "tvRadarLidarRightFront": "无目标",
+            "tvRadarLidarRightRear": "无目标",
+            "tvRadarLeftBlock": "可左变道", "tvRadarRightBlock": "可右变道"},
   ),
   dict(
-    name="front", desc="正前方有车(毫米波 lead1)",
+    name="front", desc="正前车卡片: 前车/距离/速度/速差 四行",
     payload={"lead1": True, "drel": 25, "vlead": 40, "vrel": -5},
-    expect={"tvRadarFront": "25.0m"},
+    expect={"tvRadarFront": ["前车", "25.0m", "40km/h", "(-5km/h)"]},
   ),
   dict(
-    name="left_front", desc="左前方: 毫米波前角 + 激光前角都有(紧凑格式, 双来源带 波/光 前缀)",
+    name="left_front", desc="左列: 原车毫米波 + 激光前角 各自一张卡片",
     payload={"l_lead": True, "l_drel": 18, "l_vlead": 36, "l_vrel": -2,
              "lf_drel": 15000, "lf_xrel": 1600, "lf_vrel": 0},
-    expect={"tvRadarLeftFront": ["波18.0m", "光15.0m"], "tvRadarRightFront": "无目标"},
+    expect={"tvRadarMmwLeft": "18.0m", "tvRadarLidarLeftFront": ["15.0m", "/1.6m"],
+            "tvRadarMmwRight": "无目标"},
   ),
   dict(
-    name="right_front", desc="右前方: 毫米波前角 + 激光前角都有",
+    name="right_front", desc="右列: 原车毫米波 + 激光前角",
     payload={"r_lead": True, "r_drel": 22, "r_vlead": 30, "r_vrel": 2,
              "rf_drel": 20000, "rf_xrel": -1500, "rf_vrel": -1},
-    expect={"tvRadarRightFront": ["波22.0m", "光20.0m"]},
+    expect={"tvRadarMmwRight": "22.0m", "tvRadarLidarRightFront": ["20.0m", "/1.5m"]},
   ),
   dict(
-    name="left_front_lidar_only", desc="左前方: 只有激光前角(单来源不加前缀)",
+    name="left_front_lidar_only", desc="左列: 只有激光前角(毫米波卡显示无目标)",
     payload={"lf_drel": 16000, "lf_xrel": 1500, "lf_vrel": 0},
-    expect={"tvRadarLeftFront": "16.0m"},
+    expect={"tvRadarLidarLeftFront": "16.0m", "tvRadarMmwLeft": "无目标"},
   ),
   dict(
-    name="right_front_lidar_only", desc="右前方: 只有激光前角",
+    name="right_front_lidar_only", desc="右列: 只有激光前角",
     payload={"rf_drel": 21000, "rf_xrel": -1400, "rf_vrel": 0},
-    expect={"tvRadarRightFront": "21.0m"},
+    expect={"tvRadarLidarRightFront": "21.0m", "tvRadarMmwRight": "无目标"},
   ),
   dict(
-    name="left_front_both", desc="★回归: 毫米波+激光同侧前角, 两行都要能看到(旧版会被裁掉)",
+    name="front_mmw_lidar_both", desc="左右前角两个来源同时有数据(各一张卡片, 不互相挤)",
     payload={"l_lead": True, "l_drel": 15, "l_vlead": 33, "l_vrel": -1,
-             "lf_drel": 16000, "lf_xrel": 1500, "lf_vrel": 0},
-    expect={"tvRadarLeftFront": ["波15.0m", "光16.0m"]},
+             "lf_drel": 16000, "lf_xrel": 1500, "lf_vrel": 0,
+             "r_lead": True, "r_drel": 20, "r_vlead": 31, "r_vrel": 1,
+             "rf_drel": 21000, "rf_xrel": -1400, "rf_vrel": 0},
+    expect={"tvRadarMmwLeft": "15.0m", "tvRadarLidarLeftFront": "16.0m",
+            "tvRadarMmwRight": "20.0m", "tvRadarLidarRightFront": "21.0m"},
   ),
   dict(
-    name="left_rear", desc="左后方: 激光后角有距离 + 激光后角盲区 -> 红底写明原因 + 数据",
+    name="left_rear", desc="左后激光有目标 + 激光后角盲区 -> 第4行红底写明原因",
     payload={"lb_drel": -12000, "lb_xrel": 1300, "lb_vrel": 3, "lidar_lbblind": True},
-    expect={"tvRadarLeftRear": ["禁止变道", "12.0m"], "tvRadarRightRear": "无目标"},
+    expect={"tvRadarLidarLeftRear": ["12.0m", "/1.3m"],
+            "tvRadarLeftBlock": ["禁止左变道", "激光盲区·后角"],
+            "tvRadarRightBlock": "可右变道"},
   ),
   dict(
-    name="right_rear", desc="右后方: 激光后角有距离 + 激光侧盲区",
+    name="right_rear", desc="右后激光有目标 + 激光侧盲区",
     payload={"rb_drel": -9000, "rb_xrel": -1100, "rb_vrel": 5, "lidar_rblind": True},
-    expect={"tvRadarRightRear": ["禁止变道", "9.0m"]},
+    expect={"tvRadarLidarRightRear": ["9.0m", "/1.1m"],
+            "tvRadarRightBlock": ["禁止右变道", "激光盲区·侧方"]},
   ),
   dict(
-    name="right_rear_dist_no_blind", desc="右后方: 有距离、无任何盲区 -> 绿底只有数据",
+    name="right_rear_dist_no_blind", desc="右后激光有目标、无任何盲区 -> 第4行仍是绿灯",
     payload={"rb_drel": -9000, "rb_xrel": -1100, "rb_vrel": 5},
-    expect={"tvRadarRightRear": "9.0m"},
-    not_expect={"tvRadarRightRear": "禁止变道"},
+    expect={"tvRadarLidarRightRear": "9.0m", "tvRadarRightBlock": "可右变道"},
+    not_expect={"tvRadarRightBlock": "禁止"},
   ),
   dict(
     name="bug_right_rear_blind_only",
-    desc="★原问题: 综合盲区(摄像头/实线等)为真但没有右后激光距离 -> 红底写明真实原因",
+    desc="★原问题: 综合盲区(摄像头/实线等)为真但没有右后激光距离 -> 写明真实原因, 不再显示'盲区有车'",
     payload={"blind_r": True},
-    expect={"tvRadarRightRear": ["禁止变道", "摄像头盲区"]},
+    # 只给综合标志、没给分解来源 -> 显示"综合盲区"(旧版这里写死成"摄像头盲区")
+    expect={"tvRadarRightBlock": ["禁止右变道", "综合盲区"],
+            "tvRadarLidarRightRear": "无目标"},
   ),
   dict(
-    name="bug_left_rear_blind_only",
-    desc="★同类: 左侧综合盲区为真但无左后距离",
+    name="bug_left_rear_blind_only", desc="★同类: 左侧综合盲区为真但无左后激光距离",
     payload={"blind_l": True},
-    expect={"tvRadarLeftRear": ["禁止变道", "摄像头盲区"]},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "综合盲区"],
+            "tvRadarLidarLeftRear": "无目标"},
   ),
   dict(
-    name="lidar_rbblind_only", desc="右后激光雷达自身盲区(无距离) -> 红底(激光盲区)",
+    name="lidar_rbblind_only", desc="右后激光雷达自身盲区(无距离) -> 禁止右变道(激光盲区·后角)",
     payload={"lidar_rbblind": True},
-    expect={"tvRadarRightRear": ["禁止变道", "激光盲区"]},
+    expect={"tvRadarRightBlock": ["禁止右变道", "激光盲区·后角"]},
   ),
   dict(
-    name="front_blind_only",
-    desc="原车前雷达侧前盲区为真、前角无目标 -> 前两张卡红底写明原因",
+    name="front_blind_only", desc="原车前雷达侧前盲区为真 -> 左右都不能变道(前侧盲区·前雷达)",
     payload={"l_front_blind": True, "r_front_blind": True},
-    expect={"tvRadarLeftFront": ["禁止变道", "前侧盲区"],
-            "tvRadarRightFront": ["禁止变道", "前侧盲区"]},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "前侧盲区·前雷达"],
+            "tvRadarRightBlock": ["禁止右变道", "前侧盲区·前雷达"]},
   ),
   dict(
     name="front_blind_and_lidar", desc="左右前侧盲区 + 右侧综合盲区(查左右是否对称)",
     payload={"l_front_blind": True, "r_front_blind": True, "blind_r": True},
-    expect={"tvRadarLeftFront": "禁止变道", "tvRadarRightFront": "禁止变道"},
+    expect={"tvRadarLeftBlock": "禁止左变道", "tvRadarRightBlock": "禁止右变道"},
+  ),
+  dict(
+    name="blind_lane_only",
+    desc="★旧会误显示成摄像头: CP 判为实线但 App 车道线类型不为实线 -> 应显示'车道实线'",
+    payload={"blind_l": True, "blind_lane_l": True, "blind_r": True, "blind_lane_r": True},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "车道实线"],
+            "tvRadarRightBlock": ["禁止右变道", "车道实线"]},
+    not_expect={"tvRadarLeftBlock": "摄像头"},
+  ),
+  dict(
+    name="blind_car_only",
+    desc="★旧会误显示成摄像头: 车身盲区(目标进入本车侧面) -> 应显示'车身盲区'",
+    payload={"blind_l": True, "blind_car_l": True},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "车身盲区"]},
+    not_expect={"tvRadarLeftBlock": "摄像头"},
+  ),
+  dict(
+    name="blind_camera_only",
+    desc="确实有摄像头盲区 -> 仍显示'摄像头盲区'",
+    payload={"blind_l": True, "blind_camera_l": True},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "摄像头盲区"]},
+  ),
+  dict(
+    name="lidar_rear_approach",
+    desc="激光在线 + 侧后车 14m 且以 20km/h 逼近(绝对距离判不出, 靠时距/TTC) -> 禁止左变道",
+    payload={"lidar_l": True, "lb_drel": -14000, "lb_xrel": 1300, "lb_vrel": 20},
+    expect={"tvRadarLeftBlock": ["禁止左变道", "侧后逼近·激光14.0m"]},
+  ),
+  dict(
+    name="lidar_front_close",
+    desc="激光在线 + 侧前车 9m 且本车以 10km/h 逼近 -> 禁止右变道",
+    payload={"lidar_r": True, "rf_drel": 9000, "rf_xrel": -1400, "rf_vrel": -10},
+    expect={"tvRadarRightBlock": ["禁止右变道", "侧前危险·激光9.0m"]},
+  ),
+  dict(
+    name="lidar_offline_no_new_gate",
+    desc="同样的侧后逼近数据但激光离线 -> App 自算判据不启用, 仍是可左变道",
+    payload={"lb_drel": -14000, "lb_xrel": 1300, "lb_vrel": 20},
+    expect={"tvRadarLeftBlock": "可左变道"},
+    not_expect={"tvRadarLeftBlock": "侧后逼近"},
   ),
   dict(
     name="all", desc="全部有目标(综合)",
@@ -146,11 +204,13 @@ SCENARIOS = [
              "rb_drel": -8000, "rb_xrel": -1000, "rb_vrel": 4,
              "lidar_lblind": True, "lidar_rblind": True,
              "l_front_blind": True, "r_front_blind": True},
-    expect={"tvRadarFront": "30.0m",
-            "tvRadarLeftFront": ["禁止变道", "波15.0m", "光16.0m"],
-            "tvRadarRightFront": ["禁止变道", "波20.0m", "光21.0m"],
-            "tvRadarLeftRear": ["禁止变道", "11.0m"],
-            "tvRadarRightRear": ["禁止变道", "8.0m"]},
+    expect={"tvRadarFront": ["前车", "30.0m", "45km/h", "(-3km/h)"],
+            "tvRadarMmwLeft": "15.0m", "tvRadarLidarLeftFront": "16.0m/1.5m",
+            "tvRadarMmwRight": "20.0m", "tvRadarLidarRightFront": "21.0m/1.4m",
+            "tvRadarLidarLeftRear": "11.0m/1.2m",
+            "tvRadarLidarRightRear": "8.0m/1.0m",
+            "tvRadarLeftBlock": ["禁止左变道", "前侧盲区·前雷达"],
+            "tvRadarRightBlock": ["禁止右变道", "前侧盲区·前雷达"]},
   ),
 ]
 
@@ -165,8 +225,17 @@ ENVELOPE = {
   "lidar_lblind": False, "lidar_rblind": False,
   "lidar_lfblind": False, "lidar_lbblind": False,
   "lidar_rfblind": False, "lidar_rbblind": False,
+  # 激光雷达在线(设备级)：App 侧的时距/TTC 自算判据只在在线时启用
+  "lidar_l": False, "lidar_r": False,
+  # 侧向判定阈值(CP 下发, x0.1)：App 自算判据与 CP 同源
+  "lidar_front_vdist_time": -50, "lidar_front_vrel_time": 40,
+  "lidar_behind_vdist_time": -100, "lidar_behind_vrel_time": 40,
   # 综合盲区(车道线/车身/激光/摄像头)
   "blind_l": False, "blind_r": False,
+  # 综合盲区的分解来源(摄像头/车身/实线)
+  "blind_camera_l": False, "blind_camera_r": False,
+  "blind_car_l": False, "blind_car_r": False,
+  "blind_lane_l": False, "blind_lane_r": False,
   "l_front_blind": False, "r_front_blind": False,
   "left_blindspot": False, "right_blindspot": False,
   # 距离类: 场景里有就覆盖, 没有就不发(靠超时清空, 与 CP 行为一致)
@@ -192,18 +261,52 @@ def screenshot(adb: str, path: str) -> int:
   return len(out)
 
 
-def read_cards(adb: str) -> dict:
-  """用 uiautomator 读回 activity_main 里 5 张卡片的文字。"""
-  subprocess.run([adb, "shell", "uiautomator", "dump", "/sdcard/ui.xml"],
-                 capture_output=True)
-  out = subprocess.run([adb, "shell", "cat", "/sdcard/ui.xml"], capture_output=True)
-  xml = out.stdout.decode("utf-8", "ignore")
-  cards = {}
-  for m in re.finditer(r"<node[^>]*resource-id=\"com\.carrot\.amapnavi:id/(tvRadar\w+)\"[^>]*/?>", xml):
-    tag, rid = m.group(0), m.group(1)
-    tm = re.search(r'text="([^"]*)"', tag)
-    cards[rid] = (tm.group(1) if tm else "").replace("&#10;", " / ").replace("\n", " / ")
-  return cards
+def read_cards(adb: str, tries: int = 3) -> dict:
+  """读回 activity_main 里几张卡片的文字。
+
+  首选 App 自己输出的一行日志（不受 uiautomator idle 限制）：
+
+    RADARCARDS tvRadarMmwLeft=15.0m/(-1km/h) tvRadarFront=... ...
+
+  （App 侧在雷达页刷新、文本变化时输出，见 MainActivityUi.logRadarCardsOnce）
+  取不到时再退回 uiautomator dump —— 页面上"决策详情"带计时/实时数值会一直刷新，
+  uiautomator 经常拿不到 idle(ERROR: could not get idle state)。
+  """
+  try:
+    raw = subprocess.run([adb, "logcat", "-d"], capture_output=True).stdout.decode("utf-8", "ignore")
+    cards = {}
+    for line in raw.splitlines():
+      m = re.search(r"RADARCARDS (.*)$", line)
+      if not m:
+        continue
+      parsed = {}
+      for kv in m.group(1).split(" "):
+        if "=" in kv:
+          key, value = kv.split("=", 1)
+          parsed[key] = value
+      if parsed:
+        cards = parsed          # 取最后一条（最新的状态）
+    if cards:
+      return cards
+  except Exception:
+    pass
+
+  for attempt in range(tries):
+    for extra in (["--windows"], []):
+      subprocess.run([adb, "shell", "uiautomator", "dump"] + extra + ["/sdcard/ui.xml"],
+                     capture_output=True)
+      out = subprocess.run([adb, "shell", "cat", "/sdcard/ui.xml"], capture_output=True)
+      xml = out.stdout.decode("utf-8", "ignore")
+      cards = {}
+      for m in re.finditer(r"<node[^>]*resource-id=\"com\.carrot\.amapnavi:id/(tvRadar\w+)\"[^>]*/?>", xml):
+        tag, rid = m.group(0), m.group(1)
+        tm = re.search(r'text="([^"]*)"', tag)
+        cards[rid] = (tm.group(1) if tm else "").replace("&#10;", " / ").replace("\n", " / ")
+      if cards:
+        return cards
+    if attempt < tries - 1:
+      time.sleep(1.2)
+  return {}
 
 
 def wait_for_app(adb: str) -> bool:

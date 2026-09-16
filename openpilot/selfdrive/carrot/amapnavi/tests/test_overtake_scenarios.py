@@ -146,9 +146,12 @@ def main() -> int:
 
   try:
     # ---------- 场景1：左侧前方有目标 ----------
+    # 注意：动态模式(DynamicBlindRange=2)下设备自报的 lidar_*blind 会被 CP 自己的
+    # 引擎结果替代，所以这里必须给出"真能判危险"的距离——当前参数前方危险距离是
+    # 绝对 5m(LidarFrontVDistTime=-50)，8m 的静止目标不算危险，用 4m。
     print("=== 场景1：左前(侧前方)有目标 → 应阻左侧超车 ===")
     s = run_scenario(watcher, app, lidar_l, args.hold,
-                     lambda: send_lidar(lidar_l, 1, app.port, side_blind=True, front=True, drel_f=8000))
+                     lambda: send_lidar(lidar_l, 1, app.port, side_blind=True, front=True, drel_f=4000))
     lb = last(s, "leftBlind")
     report.check("leftBlind 含 侧方(bit0)", bool(lb & B_LIDAR), f"leftBlind={lb}")
     report.check("leftBlind 含 侧前(bit4)", bool(lb & B_FRONT), f"leftBlind={lb}")
@@ -170,7 +173,7 @@ def main() -> int:
     # ---------- 场景3：右侧前方有目标 ----------
     print("=== 场景3：右前有目标 → 应阻右侧超车、左侧放行 ===")
     s = run_scenario(watcher, app, lidar_r, args.hold,
-                     lambda: send_lidar(lidar_r, 2, app.port, side_blind=True, front=True, drel_f=9000))
+                     lambda: send_lidar(lidar_r, 2, app.port, side_blind=True, front=True, drel_f=4000))
     rb = last(s, "rightBlind")
     report.check("rightBlind 含 侧方+侧前", bool(rb & B_LIDAR) and bool(rb & B_FRONT), f"rightBlind={rb}")
     report.check("右前距离已回填", last(s, "rfDrel") not in (None, 0) and last(s, "rfDrelValid") == 1,
@@ -184,13 +187,46 @@ def main() -> int:
     # ---------- 场景4：两侧同时有目标 ----------
     print("=== 场景4：两侧同时有目标 → 双向都应阻止 ===")
     s = run_scenario(watcher, app, lidar_l, args.hold, lambda: (
-      send_lidar(lidar_l, 1, app.port, side_blind=True, front=True, drel_f=7000),
+      send_lidar(lidar_l, 1, app.port, side_blind=True, front=True, drel_f=4000),
       send_lidar(lidar_r, 2, app.port, side_blind=True, rear=True, drel_b=-5000),
     ))
     report.check("leftBlind 有盲区", bool(last(s, "leftBlind") & (B_LIDAR | B_FRONT | B_REAR)),
                  f"leftBlind={last(s, 'leftBlind')}")
     report.check("rightBlind 有盲区", bool(last(s, "rightBlind") & (B_LIDAR | B_FRONT | B_REAR)),
                  f"rightBlind={last(s, 'rightBlind')}")
+
+    # ---------- 场景6：邻道车横向距离不应被动态盲区误屏蔽 ----------
+    # 判定区域 = 1.5×侧面车道宽（夹 3.5~5.5m）。城市里车道宽读数常只有 2.4~3.0m，
+    # 旧实现直接拿 1 倍车道宽当上限，邻道车(横向 3.0~3.5m)会被全部屏蔽。
+    print("=== 场景6：左后 6m + 横向 3.3m（典型邻道车）→ 不应被屏蔽 ===")
+    s = run_scenario(watcher, app, lidar_l, 5.0,
+                     lambda: send_lidar(lidar_l, 1, app.port, side_blind=True, rear=True,
+                                        drel_b=-6000, xrel=3300))
+    report.check("横向3.3m 仍判侧后盲区", bool(last(s, "leftBlind") & B_REAR),
+                 f"leftBlind={last(s, 'leftBlind')}")
+
+    # ---------- 场景6b：明显超宽的目标应被屏蔽（反证） ----------
+    print("=== 场景6b：左后 6m + 横向 6.0m（超宽）→ 应被动态屏蔽 ===")
+    s = run_scenario(watcher, app, lidar_l, 4.0,
+                     lambda: send_lidar(lidar_l, 1, app.port, side_blind=True, rear=True,
+                                        drel_b=-6000, xrel=6000))
+    report.check("横向6.0m 被屏蔽", not (last(s, "leftBlind") & B_REAR),
+                 f"leftBlind={last(s, 'leftBlind')}")
+
+    # ---------- 场景7：相对速度时距（不是绝对距离）也要能判危险 ----------
+    # 后车 8m/s 逼近，2.5s 只从 40m 走到 20m：光靠绝对 10m 判不出来，
+    # 必须靠 LidarBehindVRelDistTime(4s) 的外推：d - 8*4 < 10 → d < 42m。
+    print("=== 场景7：后车 8m/s 逼近（40m→20m）→ 相对速度时距应判危险 ===")
+    st = {"d": -40000.0}
+
+    def approach():
+      st["d"] = max(-20000.0, st["d"] + 800)     # 每帧 100ms → 8 m/s
+      send_lidar(lidar_l, 1, app.port, drel_b=int(st["d"]))
+
+    s = run_scenario(watcher, app, lidar_l, 2.5, approach)
+    got = any((x.get("leftBlind", 0) & B_REAR) for x in s)
+    report.check("相对速度时距判出侧后危险", got,
+                 f"最远只到 {st['d'] / 1000:.1f}m, leftBlind={last(s, 'leftBlind')}")
 
     # ---------- 场景5：停止上报 → 全部清空 ----------
     print("=== 场景5：停止上报 → 盲区与距离应清空 ===")

@@ -33,6 +33,31 @@ from openpilot.selfdrive.carrot.amapnavi.config import UnifiedParams
 from openpilot.selfdrive.carrot.amapnavi.decel_advisor import HumanLikeConfig, SideTarget, SpeedAdvisor
 from openpilot.selfdrive.carrot.amapnavi.messages import NaviMessageBuilder
 from openpilot.selfdrive.carrot.amapnavi.protocol import PacketHandler, body_blind
+
+# ------------------------------------------------------------------ 动态盲区判定区域
+# 判定区域 = 该侧「目标车道」的横向范围，用检测到的侧面车道宽度换算。
+#   EGO 基本居中，所以邻道的横向范围约为 [半个本车道, 1.5 个本车道]，
+#   取 1.5 倍车道宽作上限：邻道车（横向约 1 个车道宽）保留，
+#   只有更外侧车道/路边（超宽）的目标才屏蔽。
+#   旧实现直接拿 1 倍车道宽当上限、还把范围压到 1.2~3.5m，
+#   结果邻道车（横向 3.0~3.5m）几乎必然被判为"超宽"而全部屏蔽，
+#   动态模式下因此"基本不报盲区"。
+SIDE_REGION_MIN_LANE_M = 2.5       # 车道宽读数下限，低于此值认为不可信
+SIDE_REGION_MAX_LANE_M = 4.0       # 车道宽读数上限，高于此值认为是异常值
+SIDE_REGION_FALLBACK_LANE_M = 3.2  # 读数不可信时的兜底车道宽
+SIDE_REGION_FACTOR = 1.5           # 判定区域 = 车道宽 × 该倍数
+SIDE_REGION_HARD_MIN_M = 3.5       # 判定区域硬下限（保证邻道车不被误屏蔽）
+SIDE_REGION_HARD_MAX_M = 5.5       # 判定区域硬上限（再远就不是邻道了）
+
+
+def side_region_limit_mm(lane_width_m) -> float:
+  """把某侧车道宽度换算成动态盲区判定区域的横向上限 (mm)。"""
+  w = float(lane_width_m or 0.0)
+  if not (SIDE_REGION_MIN_LANE_M <= w <= SIDE_REGION_MAX_LANE_M):
+    w = SIDE_REGION_FALLBACK_LANE_M
+  limit = w * SIDE_REGION_FACTOR
+  limit = max(SIDE_REGION_HARD_MIN_M, min(SIDE_REGION_HARD_MAX_M, limit))
+  return limit * 1000.0
 from openpilot.selfdrive.carrot.amapnavi.shared_state import DT_BROADCAST, SharedData
 from openpilot.selfdrive.carrot.amapnavi.transport import (
   LISTEN_PORT,
@@ -330,6 +355,9 @@ class AmapNaviServ:
   def lidar_object_blind(self):
     """计算动态盲区屏蔽，并对四角危险标志做去抖。"""
     self._update_atc_flag()
+    # 数据超时复位：设备静默时一个包都不会来，只能在这里按时间清标志，
+    # 否则目标消失后危险标志会一直亮着（UI 上表现为"距离没了图标还在"）。
+    self.packet_handler.expire_corners()
     self.blind_mask = self._dynamic_blind_mask()
 
     for corner in CORNERS:
@@ -343,8 +371,37 @@ class AmapNaviServ:
     self.atc_flag = atc_type in (ATC_TURN + ATC_FORK + ATC_FORK_NOW + ATC_EARLY)
     self.packet_handler.atc_flag = self.atc_flag
 
+  # 动态盲区的判定区域 = 该侧「目标车道」的横向范围（用检测到的侧面车道宽度算）。
+  #   EGO 基本居中，所以邻道的横向范围约为 [半个本车道, 1.5 个本车道]，
+  #   取 1.5 倍车道宽作上限：邻道车（横向约 1 个车道宽）保留，
+  #   只有更外侧车道/路边（超宽）的目标才屏蔽。
+  #   旧实现直接拿 1 倍车道宽当上限并把范围压到 1.2~3.5m，
+  #   结果邻道车（3.0~3.5m）几乎必然被判为"超宽"而全部屏蔽 → 动态模式基本不报盲区。
+  SIDE_REGION_MIN_LANE_M = 2.5     # 车道宽读数下限，低于此值认为不可信
+  SIDE_REGION_MAX_LANE_M = 4.0     # 车道宽读数上限，高于此值认为是异常值
+  SIDE_REGION_FALLBACK_LANE_M = 3.2  # 读数不可信时的兜底车道宽
+  SIDE_REGION_FACTOR = 1.5         # 判定区域 = 车道宽 × 该倍数
+  SIDE_REGION_HARD_MIN_M = 3.5     # 判定区域硬下限（保证邻道车不被误屏蔽）
+  SIDE_REGION_HARD_MAX_M = 5.5     # 判定区域硬上限（再远就不是邻道了）
+
+  def _side_region_limit_mm(self, lane_width_m) -> float:
+    """把该侧车道宽度换算成动态盲区判定区域的横向上限 (mm)。"""
+    w = float(lane_width_m or 0.0)
+    if not (self.SIDE_REGION_MIN_LANE_M <= w <= self.SIDE_REGION_MAX_LANE_M):
+      w = self.SIDE_REGION_FALLBACK_LANE_M
+    limit = w * self.SIDE_REGION_FACTOR
+    limit = max(self.SIDE_REGION_HARD_MIN_M, min(self.SIDE_REGION_HARD_MAX_M, limit))
+    return limit * 1000.0
+
   def _dynamic_blind_mask(self):
-    """导航变道时，按车道宽度屏蔽超出路宽的目标。"""
+    """动态盲区屏蔽：目标横向超出该侧目标车道范围时不计入盲区。
+
+    ``DynamicBlindRange`` 的两种语义（与 cpv9-dev 一致）：
+      1 = 只在导航变道（ATC/转向）期间使用侧面车道宽度判定；
+      2 = 一直使用侧面车道宽度判定。
+
+    判定区域由 :func:`side_region_limit_mm` 按侧面车道宽度换算。
+    """
     mask = {c: False for c in CORNERS}
     if self.dynamicBlindRange < 1:
       return mask
@@ -355,10 +412,11 @@ class AmapNaviServ:
     if meta is None:
       return mask
 
-    lane_left = max(1.2, min(3.5, round(meta.laneWidthLeft, 1))) * 1000.0
-    lane_right = max(1.2, min(3.5, round(meta.laneWidthRight, 1))) * 1000.0
     shared = self.shared_data
-    for corner, limit in (("lf", lane_left), ("lb", lane_left), ("rf", lane_right), ("rb", lane_right)):
+    limit_left = side_region_limit_mm(getattr(meta, 'laneWidthLeft', 0.0))
+    limit_right = side_region_limit_mm(getattr(meta, 'laneWidthRight', 0.0))
+    for corner, limit in (("lf", limit_left), ("lb", limit_left),
+                          ("rf", limit_right), ("rb", limit_right)):
       xrel = getattr(shared, f"main_{corner}_xrel")
       if xrel is not None and xrel > limit:
         mask[corner] = True
