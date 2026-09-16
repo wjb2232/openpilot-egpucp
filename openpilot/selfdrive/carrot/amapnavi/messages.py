@@ -98,8 +98,18 @@ class NaviMessageBuilder:
       if shared.rightFrontBlind is not None:
         msg['r_front_blind'] = shared.rightFrontBlind
 
-      msg['lidar_lblind'] = shared.left_blindspot_combined()
-      msg['lidar_rblind'] = shared.right_blindspot_combined()
+      # 激光雷达自身的盲区（纯激光），供 App 判断"激光雷达有没有目标"；
+      # 四角分开下发，App 才能在左后/右后/左前/右前卡片上写清是哪一侧的激光盲区。
+      msg['lidar_lblind'] = shared.lidar_lblind
+      msg['lidar_rblind'] = shared.lidar_rblind
+      msg['lidar_lfblind'] = shared.lidar_lfblind
+      msg['lidar_lbblind'] = shared.lidar_lbblind
+      msg['lidar_rfblind'] = shared.lidar_rfblind
+      msg['lidar_rbblind'] = shared.lidar_rbblind
+      # 综合盲区（车道线 / 车身 / 激光 / 摄像头）：App 用它判定"禁止变道"，
+      # 与上面的纯激光标志分开，避免把"右侧实线/摄像头"显示成"右后激光有车"。
+      msg['blind_l'] = shared.left_blindspot_combined()
+      msg['blind_r'] = shared.right_blindspot_combined()
 
       for field in DISTANCE_FIELDS:
         table = getattr(shared, field)
