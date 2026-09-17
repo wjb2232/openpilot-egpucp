@@ -1,4 +1,8 @@
-#!/usr/bin/bash -e
+#!/usr/bin/bash
+# NOTE: -e in the shebang is NOT applied when the script is invoked as
+# `bash build_release.sh`, so set it explicitly here. Without it a failed
+# `git push` would fall through and the script would still report "Published".
+set -e
 
 BUILD_DIR=/data/openpilot
 cd $BUILD_DIR
@@ -105,7 +109,11 @@ echo -n "$STAMP" > .build_stamp
 git add -f .build_stamp
 git commit -m "${VERSION}-stamp"
 
-git push -f origin "egpucp"
+# Capture the result instead of letting `set -e` abort here: the restore steps
+# below must always run, otherwise pydeps would stay in /data/pydeps_pub_keep
+# and the device would be broken.
+PUSH_OK=1
+git push -f origin "egpucp" || PUSH_OK=0
 
 # ---------------------------------------------------------------------------
 # Post-publish: strip the token from the remote and restore local runtime deps.
@@ -118,6 +126,19 @@ echo "==> Restoring pydeps"
 if [ -d /data/pydeps_pub_keep ]; then
   mv /data/pydeps_pub_keep "$BUILD_DIR/pydeps"
   echo "    pydeps restored"
+fi
+
+if [ "$PUSH_OK" != "1" ]; then
+  echo ""
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!! PUSH FAILED - nothing was published to jihulab."
+  echo "!!   pydeps 已恢复，设备可正常使用。"
+  echo "!!   常见原因：jihulab 未配置凭据。可先 git config credential.helper store"
+  echo "!!   或设置 TOKEN=<token> 后重跑本脚本。"
+  echo "!!   注意：本次已 rm -rf .git 并重建为 egpucp 分支，"
+  echo "!!         如需回到原分支，可从 $BK 恢复 .git。"
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  exit 1
 fi
 
 echo ""
