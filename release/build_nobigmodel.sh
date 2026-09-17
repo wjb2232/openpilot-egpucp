@@ -39,7 +39,7 @@ cd $BUILD_DIR
 #   ssh comma@<device> 'tar xzf /data/bigmodel_backup_XXXX.tar.gz -C /data/openpilot'
 #   then reboot.  (Paths inside the archive are relative to /data/openpilot.)
 #
-# Set SKIP_CONFIRM=1 to run unattended, GITCODE_TOKEN=xxx to avoid the
+# Set SKIP_CONFIRM=1 to run unattended, TOKEN=xxx to avoid the
 # interactive credential prompt on push.
 # ---------------------------------------------------------------------------
 
@@ -146,8 +146,8 @@ git remote add origin https://jihulab.com/fishop/openpilot.git
 
 # Optional token so the push does not prompt for credentials. It is stripped
 # from the remote again right after the push.
-if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@jihulab.com/fishop/openpilot.git"
+if [ -n "$TOKEN" ]; then
+  git remote set-url origin "https://fishop:${TOKEN}@jihulab.com/fishop/openpilot.git"
 fi
 
 # in the directory
@@ -246,7 +246,7 @@ git push -f origin "egpucp" || PUSH_OK=0
 # ---------------------------------------------------------------------------
 # Post-publish: strip the token from the remote and restore local runtime deps.
 # ---------------------------------------------------------------------------
-if [ -n "$GITCODE_TOKEN" ]; then
+if [ -n "$TOKEN" ]; then
   git remote set-url origin https://jihulab.com/fishop/openpilot.git
 fi
 
@@ -280,7 +280,7 @@ if [ "$PUSH_OK" != "1" ]; then
   echo "!! PUSH FAILED - nothing was published to jihulab."
   echo "!!   本地文件（大模型 / pydeps / amapnavi_bak）已恢复，可正常使用。"
   echo "!!   常见原因：jihulab 未配置凭据。可先 git config credential.helper store"
-  echo "!!   或设置 GITCODE_TOKEN=<token> 后重跑本脚本。"
+  echo "!!   或设置 TOKEN=<token> 后重跑本脚本。"
   echo "!!   注意：本次已 rm -rf .git 并重建为 egpucp 分支，"
   echo "!!         如需回到原来的分支，可从 $BK 恢复 .git。"
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

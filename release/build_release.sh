@@ -13,7 +13,7 @@ cd $BUILD_DIR
 #      launch_chffrplus.sh rebuilds from the tracked third_party/wheels on the
 #      next boot.  git add -f . below ignores .gitignore and would commit it.
 #
-# Set SKIP_CONFIRM=1 to run unattended, GITCODE_TOKEN=xxx to avoid the
+# Set SKIP_CONFIRM=1 to run unattended, TOKEN=xxx to avoid the
 # interactive credential prompt on push.
 # ---------------------------------------------------------------------------
 if [ -z "$SKIP_CONFIRM" ]; then
@@ -53,8 +53,8 @@ git remote add origin https://jihulab.com/fishop/openpilot.git
 
 # Optional token so the push does not prompt for credentials. It is stripped
 # from the remote again right after the push.
-if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@jihulab.com/fishop/openpilot.git"
+if [ -n "$TOKEN" ]; then
+  git remote set-url origin "https://fishop:${TOKEN}@jihulab.com/fishop/openpilot.git"
 fi
 
 # in the directory
@@ -110,7 +110,7 @@ git push -f origin "egpucp"
 # ---------------------------------------------------------------------------
 # Post-publish: strip the token from the remote and restore local runtime deps.
 # ---------------------------------------------------------------------------
-if [ -n "$GITCODE_TOKEN" ]; then
+if [ -n "$TOKEN" ]; then
   git remote set-url origin https://jihulab.com/fishop/openpilot.git
 fi
 
