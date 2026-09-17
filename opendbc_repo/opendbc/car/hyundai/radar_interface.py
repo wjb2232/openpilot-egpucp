@@ -310,7 +310,15 @@ class RadarInterface(RadarInterfaceBase):
     self.rcp_corner_objects_430 = get_corner_object_430_can_parser(CP, self.corner_object_430_tracks)
     # Enabling raw radar tracks on legacy CAN disables the stock SCC11 stream on
     # some Hyundai/Kia platforms. Camera-SCC cars may still use SCC11.
-    use_scc_parser = not (self.radar_tracks and not self.canfd and not (CP.flags & HyundaiFlags.CAMERA_SCC))
+    # ESCC 模式（EnableEscc=1、0x2AB 在 bus0，且 enhanced_scc 成立）下必须一并关掉
+    # SCC parser：openpilot 自己会往 bus0 发 SCC11/SCC12（hyundaican.py），此后 bus0
+    # 上不再有车辆侧的 SCC11 RX，只剩 panda 把本机发出的帧回显成 src=128。
+    # 继续订阅会让这个 CANParser 永远 can_valid=False -> RadarData.errors.canError
+    # -> liveTracks.valid=False -> radarState.valid=False
+    # -> 屏幕打出「CAN错误：请检查连接！！」。
+    # 与下面 scc_ready 的 "not self.enhanced_scc" 保持一致：ESCC 模式不建 SCC parser。
+    use_scc_parser = (not self.enhanced_scc and
+                      not (self.radar_tracks and not self.canfd and not (CP.flags & HyundaiFlags.CAMERA_SCC)))
     self.rcp_scc = get_radar_can_parser_scc(CP) if use_scc_parser else None
     self.trigger_msg_scc = 416 if self.canfd else 0x420
 
@@ -360,7 +368,12 @@ class RadarInterface(RadarInterfaceBase):
       self.pts[ESCC_TID] = structs.RadarData.RadarPoint()
       self.pts[ESCC_TID].measured = False
       self.pts[ESCC_TID].trackId = ESCC_TID
-      self.pts[ESCC_TID].radarSource = "escc"
+      # capnp 的 RadarSource 枚举只有 frontRadar/scc/corner235/corner180/corner430，
+      # 没有 escc。写非法枚举名会让 capnp 抛 AttributeError，card 进程直接崩溃
+      # （EnableEscc=1 + 车型识别成功 = 必崩，openpilot 完全不可用）。
+      # ESCC 点来自原车前向雷达 0x2AB，用枚举里的 frontRadar：
+      # 非角雷达来源、非 scc、trackId=1 不落在角雷达 ID 区间内。
+      self.pts[ESCC_TID].radarSource = "frontRadar"
     if self.rcp_corner_objects is not None:
       for slot in range(CORNER_OBJECT_235_MSG_COUNT):
         t_id = CORNER_OBJECT_235_TRACK_ID_OFFSET + slot

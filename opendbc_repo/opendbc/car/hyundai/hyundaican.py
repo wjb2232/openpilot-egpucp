@@ -318,9 +318,15 @@ def create_acc_commands(packer, enabled, accel, jerk, idx, hud_control, set_spee
   # these signals also prevent a TCS fault on non-FCA cars with alpha longitudinal
   if not use_fca:
     scc12_values["CF_VSM_ConfMode"] = 1
-    scc12_values["AEB_Status"] = 2 if escc else 1  # AEB disabled
+    scc12_values["AEB_Status"] = 1  # AEB disabled
 
   if escc:
+    # ESCC 保留原车雷达 AEB，所以 SCC12 必须上报 AEB 为 enabled。
+    # 这里必须无条件设置：FCA 车 use_fca=True，会跳过上面的块，
+    # 而 AEB_Status=0 会被仪表（SCC12 AEB_Status 接收方 CLU/ESC）读成 AEB 故障。
+    # sunnypilot 上游同样在这里无条件写 2；写 1 会让仪表在
+    # “已解除”和“辅助激活”之间闪烁。
+    scc12_values["AEB_Status"] = 2  # AEB enabled (保留原车雷达 AEB)
     scc12_values["AEB_CmdAct"] = CS.escc_cmd_act
     scc12_values["CF_VSM_Warn"] = CS.escc_aeb_warning
     scc12_values["CF_VSM_DecCmdAct"] = CS.escc_aeb_dec_cmd_act

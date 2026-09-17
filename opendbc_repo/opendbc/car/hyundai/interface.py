@@ -169,6 +169,10 @@ class CarInterface(CarInterfaceBase):
           print("$$$ESCC")
         else:
           print("$$$User disable ESCC")
+      else:
+        # 0x2AB 是原车 SCC 雷达发出的 ESCC 报文。bus0 上没有它时 ESCC 分支永远
+        # 不会 arm，EnableEscc 参数会静默失效（看起来"开了没反应"）。
+        print("$$$ESCC unavailable: 0x2AB not seen on bus 0")
 
       if ret.flags & HyundaiFlags.LEGACY:
         # these cars require a special panda safety mode due to missing counters and checksums in the messages

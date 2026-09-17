@@ -581,20 +581,36 @@ class CarState(CarStateBase):
       ret.stockAeb = aeb_warning and aeb_braking
     #加上ESCC的数据
     elif self.CP.spFlags & HyundaiFlagsSP.SP_ENHANCED_SCC:
-      aeb_src = "FCA11" if self.CP.flags & HyundaiFlags.USE_FCA else "ESCC"
-      aeb_sig = "FCA_CmdAct" if self.CP.flags & HyundaiFlags.USE_FCA.value else "AEB_CmdAct"
-      aeb_warning_sig = "CF_VSM_Warn" if self.CP.flags & HyundaiFlags.USE_FCA.value else "CF_VSM_Warn_SCC12"
-      aeb_braking_sig = "CF_VSM_DecCmdAct" if self.CP.flags & HyundaiFlags.USE_FCA.value else "CF_VSM_DecCmdAct_SCC12"
-      aeb_braking_cmd = "CR_VSM_DecCmd_FCA11" if self.CP.flags & HyundaiFlags.USE_FCA.value else "CR_VSM_DecCmd_SCC12"
-      aeb_warning = cp.vl[aeb_src][aeb_warning_sig] != 0
-      aeb_braking = cp.vl[aeb_src][aeb_braking_sig] != 0 or cp.vl[aeb_src][aeb_sig] != 0
+      use_fca = self.CP.flags & HyundaiFlags.USE_FCA
+      if use_fca:
+        # FCA11 既可能在动力总线(CAN 0)也可能在摄像头总线(CAN 2)。
+        # 上面的 add_if_seen() 已经把它注册在实际携带它的那个 parser 上，
+        # 所以这里必须选同一个 parser。无条件从 cp 读会经由 VLDict 把该地址
+        # 注册到 CAN 0，而 CAN 0 上根本没有它，反过来会导致 can_valid 失败。
+        aeb_parser = cp_cam if "FCA11" in cp_cam.vl else cp
+        aeb_src = "FCA11"
+        aeb_sig = "FCA_CmdAct"
+        aeb_warning_sig = "CF_VSM_Warn"
+        aeb_braking_sig = "CF_VSM_DecCmdAct"
+        aeb_braking_cmd = "CR_VSM_DecCmd"
+      else:
+        aeb_parser = cp
+        aeb_src = "ESCC"
+        aeb_sig = "AEB_CmdAct"
+        aeb_warning_sig = "CF_VSM_Warn_SCC12"
+        aeb_braking_sig = "CF_VSM_DecCmdAct_SCC12"
+        aeb_braking_cmd = "CR_VSM_DecCmd_SCC12"
+
+      aeb_values = aeb_parser.vl[aeb_src]
+      aeb_warning = aeb_values[aeb_warning_sig] != 0
+      aeb_braking = aeb_values[aeb_braking_sig] != 0 or aeb_values[aeb_sig] != 0
       ret.stockFcw = aeb_warning and not aeb_braking
       ret.stockAeb = aeb_warning and aeb_braking
-      if not self.CP.flags & HyundaiFlags.USE_FCA:
-        self.escc_aeb_warning = cp.vl[aeb_src][aeb_warning_sig]
-        self.escc_aeb_dec_cmd_act = cp.vl[aeb_src][aeb_braking_sig]
-        self.escc_cmd_act = cp.vl[aeb_src][aeb_sig]
-        self.escc_aeb_dec_cmd = cp.vl[aeb_src][aeb_braking_cmd]
+      if not use_fca:
+        self.escc_aeb_warning = aeb_values[aeb_warning_sig]
+        self.escc_aeb_dec_cmd_act = aeb_values[aeb_braking_sig]
+        self.escc_cmd_act = aeb_values[aeb_sig]
+        self.escc_aeb_dec_cmd = aeb_values[aeb_braking_cmd]
       try:
         if (self.showDebugLog & 64) > 0:
           escc_data = cp.vl["ESCC"]
