@@ -49,7 +49,7 @@ LOCAL_EXCLUDE_PATHS="amapnavi_bak"
 
 if [ -z "$SKIP_CONFIRM" ]; then
   echo "This will: back up + exclude eGPU big-model artifacts and local backup"
-  echo "            dirs, rm -rf .git, force-push branch egpucp to gitcode,"
+  echo "            dirs, rm -rf .git, force-push branch egpucp to jihulab,"
   echo "            delete release/."
   read -r -p "Type yes to continue: " CONFIRM
   if [ "$CONFIRM" != "yes" ]; then
@@ -142,12 +142,12 @@ fi
 
 rm -rf .git
 git init
-git remote add origin https://gitcode.com/fishop/openpilot.git
+git remote add origin https://jihulab.com/fishop/openpilot.git
 
 # Optional token so the push does not prompt for credentials. It is stripped
 # from the remote again right after the push.
 if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@gitcode.com/fishop/openpilot.git"
+  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@jihulab.com/fishop/openpilot.git"
 fi
 
 # in the directory
@@ -247,7 +247,7 @@ git push -f origin "egpucp" || PUSH_OK=0
 # Post-publish: strip the token from the remote and restore local runtime deps.
 # ---------------------------------------------------------------------------
 if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin https://gitcode.com/fishop/openpilot.git
+  git remote set-url origin https://jihulab.com/fishop/openpilot.git
 fi
 
 echo "==> Restoring eGPU big-model artifacts (this device only)"
@@ -277,9 +277,9 @@ fi
 if [ "$PUSH_OK" != "1" ]; then
   echo ""
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  echo "!! PUSH FAILED - nothing was published to gitcode."
+  echo "!! PUSH FAILED - nothing was published to jihulab."
   echo "!!   本地文件（大模型 / pydeps / amapnavi_bak）已恢复，可正常使用。"
-  echo "!!   常见原因：gitcode 未配置凭据。可先 git config credential.helper store"
+  echo "!!   常见原因：jihulab 未配置凭据。可先 git config credential.helper store"
   echo "!!   或设置 GITCODE_TOKEN=<token> 后重跑本脚本。"
   echo "!!   注意：本次已 rm -rf .git 并重建为 egpucp 分支，"
   echo "!!         如需回到原来的分支，可从 $BK 恢复 .git。"
@@ -288,7 +288,7 @@ if [ "$PUSH_OK" != "1" ]; then
 fi
 
 echo ""
-echo "Published branch egpucp to gitcode as $VERSION (without eGPU big model)."
+echo "Published branch egpucp to jihulab as $VERSION (without eGPU big model)."
 echo "Pre-publish backup: $BK"
 echo "Big-model archive:  $BIG_TAR"
 echo "  -> restore on this device: already restored"

@@ -17,7 +17,7 @@ cd $BUILD_DIR
 # interactive credential prompt on push.
 # ---------------------------------------------------------------------------
 if [ -z "$SKIP_CONFIRM" ]; then
-  echo "This will: rm -rf .git, force-push branch egpucp to gitcode, delete release/."
+  echo "This will: rm -rf .git, force-push branch egpucp to jihulab, delete release/."
   read -r -p "Type yes to continue: " CONFIRM
   if [ "$CONFIRM" != "yes" ]; then
     echo "Aborted."
@@ -49,12 +49,12 @@ fi
 
 rm -rf .git
 git init
-git remote add origin https://gitcode.com/fishop/openpilot.git
+git remote add origin https://jihulab.com/fishop/openpilot.git
 
 # Optional token so the push does not prompt for credentials. It is stripped
 # from the remote again right after the push.
 if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@gitcode.com/fishop/openpilot.git"
+  git remote set-url origin "https://fishop:${GITCODE_TOKEN}@jihulab.com/fishop/openpilot.git"
 fi
 
 # in the directory
@@ -111,7 +111,7 @@ git push -f origin "egpucp"
 # Post-publish: strip the token from the remote and restore local runtime deps.
 # ---------------------------------------------------------------------------
 if [ -n "$GITCODE_TOKEN" ]; then
-  git remote set-url origin https://gitcode.com/fishop/openpilot.git
+  git remote set-url origin https://jihulab.com/fishop/openpilot.git
 fi
 
 echo "==> Restoring pydeps"
@@ -121,6 +121,6 @@ if [ -d /data/pydeps_pub_keep ]; then
 fi
 
 echo ""
-echo "Published branch egpucp to gitcode as $VERSION."
+echo "Published branch egpucp to jihulab as $VERSION."
 echo "Pre-publish backup: $BK"
 echo "Now reboot to restart openpilot:  sudo reboot"
