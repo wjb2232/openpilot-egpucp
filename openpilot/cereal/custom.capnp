@@ -219,7 +219,47 @@ struct CarrotNaviMedia @0xf35cc4560bbf6ec2 {
 	payload @14 :Data;
 }
 
-struct CustomReserved3 @0xda96579883444c35 {
+# amapnavi: 外挂激光雷达/摄像头 BSD 模块状态 (selfdrive/carrot/amapnavi)
+struct AmapNavi @0xda96579883444c35 {
+	leftBlind @0 :Int32;
+	rightBlind @1 :Int32;
+	lineValid @2 :Bool;
+	leftLine @3 :Int32;
+	rightLine @4 :Int32;
+	leftDevice @5 :Int32;
+	rightDevice @6 :Int32;
+	lfDrelValid @7 :Int32;
+	lbDrelValid @8 :Int32;
+	rfDrelValid @9 :Int32;
+	rbDrelValid @10 :Int32;
+	lfDrel @11 :Int32;
+	lbDrel @12 :Int32;
+	rfDrel @13 :Int32;
+	rbDrel @14 :Int32;
+	# 已连接的外挂客户端(控制器)数量，UI 的 E 徽标显示用
+	extState @15 :Int32;
+	# 原车前雷达的「前侧盲区」(selfdrive/carrot/amapnavi/stock_front_blind.py)：
+	# UI 第一行黄圆图标与变道护栏配色用。源端取 modelV2.meta.leftFrontBlind，
+	# 本 fork 的 MetaData 没有该字段，所以由 amapnavi 算好后从这里下发。
+	lFrontBlind @16 :Bool;
+	rFrontBlind @17 :Bool;
+	# 外挂转向灯板回传的转向灯状态(0=灭 1=左 2=右，与 shared_state.BLINKER_* 一致)。
+	# 单独一个字段，不并入 leftBlind/rightBlind 的位图。
+	extBlinker @18 :Int32;
+	# 侧向标志拆成独立字段（不再按位或）。语义与 amapnavi.public_amap_navi 一一对应。
+	#   leftBlind/rightBlind 位图字段仅作兼容保留，UI 已改用下面这些。
+	blindLidarL @19 :Bool;      # 激光-左侧方(llidar_lblind)
+	blindLidarLf @20 :Bool;     # 激光-左前角
+	blindLidarLb @21 :Bool;     # 激光-左后角
+	blindCombinedL @22 :Bool;   # 综合盲区(左, shared.left_blind)
+	blindCarL @23 :Bool;        # 车身盲区(左, lidar_car_lblind)
+	laneBlindL @24 :Bool;       # 左侧实线
+	blindLidarR @25 :Bool;      # 激光-右侧方
+	blindLidarRf @26 :Bool;     # 激光-右前角
+	blindLidarRb @27 :Bool;     # 激光-右后角
+	blindCombinedR @28 :Bool;   # 综合盲区(右)
+	blindCarR @29 :Bool;        # 车身盲区(右)
+	laneBlindR @30 :Bool;       # 右侧实线
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {

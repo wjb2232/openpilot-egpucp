@@ -3,6 +3,7 @@ import pyray as rl
 from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.carrot.deceleration_source import deceleration_source_presentation
+from openpilot.selfdrive.ui.amapnavi_overlay import draw_bsd_panel, draw_ext_state_badge, ext_state_from
 from openpilot.selfdrive.ui.onroad.exp_button import ExpButton
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.hardware.usbgpu import usbgpu_badge_state
@@ -301,6 +302,7 @@ class HudRenderer(Widget):
     self._draw_tpms(rect)
     self._draw_egpu_badge(rect)
     self._draw_cruise_speed_animation(rect)
+    draw_bsd_panel(ui_state.sm, rect, font=self._font_display)  # amapnavi 盲区图标 / 四角距离
 
   def user_interacting(self) -> bool:
     return self._exp_button.is_pressed
@@ -857,9 +859,11 @@ class HudRenderer(Widget):
     dx = bx + 200
     dy = by + 175
 
+    # 左半格：单字符徽标（N/M）；右半格：外挂客户端数量。
+    # 两格各 50px，合计 110px，与原来的 3 字符宽度一致（与 cpv9-dev 布局对齐）。
     if active_carrot >= 2:
       self._draw_round_box(
-        dx - 55, dy - 38, 110, 48,
+        dx - 55, dy - 38, 50, 48,
         rl.GREEN,
         line_color=rl.WHITE,
         roundness=0.25,
@@ -867,7 +871,7 @@ class HudRenderer(Widget):
         line_thickness=2,
       )
       draw_text_ui_style(
-        "APN", dx, dy, 40, rl.WHITE,
+        "N", dx - 30, dy, 40, rl.WHITE,
         font=self._font_display,
         border_width=2.0,
         shadow_offset=4.0,
@@ -875,7 +879,7 @@ class HudRenderer(Widget):
       )
     elif active_carrot >= 1:
       self._draw_round_box(
-        dx - 55, dy - 38, 110, 48,
+        dx - 55, dy - 38, 50, 48,
         COLORS.BLUE_210,
         line_color=rl.WHITE,
         roundness=0.25,
@@ -883,12 +887,15 @@ class HudRenderer(Widget):
         line_thickness=2,
       )
       draw_text_ui_style(
-        "APM", dx, dy, 40, rl.WHITE,
+        "M", dx - 30, dy, 40, rl.WHITE,
         font=self._font_display,
         border_width=2.0,
         shadow_offset=4.0,
         align="center_bottom",
       )
+
+    # amapnavi 外挂客户端数量（源端 N/M 徽标右侧的 E 徽标）
+    draw_ext_state_badge(ext_state_from(ui_state.sm), dx, dy, font=self._font_display)
 
     if self._get_nav_path_vertex_count() > 1:
       draw_text_ui_style(

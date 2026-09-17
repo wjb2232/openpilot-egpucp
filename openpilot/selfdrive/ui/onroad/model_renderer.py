@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
 from openpilot.selfdrive.locationd.calibrationd import HEIGHT_INIT
+from openpilot.selfdrive.ui.amapnavi_overlay import draw_barriers_c3
 from openpilot.selfdrive.ui.ui_state import ui_state
 from openpilot.selfdrive.ui.road_markings import (
   LANE_DASH_LENGTH_M as LANE_DASH_LENGTH_M, LANE_DASH_GAP_M as LANE_DASH_GAP_M,
@@ -155,6 +156,7 @@ class ModelRenderer(Widget):
     self._draw_lane_lines_carrot(sm)
     self._draw_blind_spot_carrot(sm)
     self._draw_radar_info_carrot(sm)
+    draw_barriers_c3(self, sm)  # amapnavi（外挂雷达/摄像头）的变道护栏
 
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""
