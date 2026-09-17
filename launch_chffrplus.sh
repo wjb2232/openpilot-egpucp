@@ -286,11 +286,17 @@ function start_carrot_web {
 }
 
 function big_model_artifact_ready {
+  # A compiled eGPU model is either a precompiled artifact or the chunked
+  # tinygrad pickle. Query the same helper modeld loads from so the launcher and
+  # the runtime always agree on what "compiled" means.
   python3 -c 'from openpilot.selfdrive.modeld.helpers import active_usbgpu_compiled_path; raise SystemExit(0 if active_usbgpu_compiled_path() is not None else 1)' 2>/dev/null
 }
 
 function invalidate_modeld_build_if_needed {
-  local stamp_path="$DIR/openpilot/selfdrive/modeld/models/.build_stamp"
+  # Keep the stamp OUTSIDE openpilot/selfdrive/modeld: the stamp value is the
+  # git tree hash of that directory, so a stamp file inside it would change the
+  # value it records (self-reference) and never match after commit.
+  local stamp_path="$DIR/.build_stamp"
   local big_stamp_path="$DIR/openpilot/selfdrive/modeld/models/.big_model_build_stamp"
   local tg_devices_path="$DIR/openpilot/selfdrive/modeld/models/tg_input_devices.json"
   local driving_pkl_path="$DIR/openpilot/selfdrive/modeld/models/driving_tinygrad.pkl"
@@ -329,6 +335,9 @@ function prepare_big_model_if_needed {
     return
   fi
 
+  # The compiled artifact path is resolved by big_model_artifact_ready from the
+  # same active manifest, so it is not duplicated here. Keeping only the sha
+  # avoids a second stale lookup and the 'unavailable' fallback path.
   BIG_MODEL_SHA="$(python3 -m openpilot.selfdrive.modeld.big_model --active-sha 2>/dev/null || true)"
 
   # Do not reject compilation from a one-shot 12V check here. During ignition
@@ -521,7 +530,8 @@ function launch {
     fi
     if [ "$FORCE_REBUILD" = "1" ]; then
       mkdir -p "$DIR/openpilot/selfdrive/modeld/models"
-      echo -n "$MODEL_BUILD_STAMP_VALUE" > "$DIR/openpilot/selfdrive/modeld/models/.build_stamp"
+      echo -n "$MODEL_BUILD_STAMP_VALUE" > "$DIR/.build_stamp"
+      rm -f "$DIR/openpilot/selfdrive/modeld/models/.build_stamp"
       if [ -n "$BIG_MODEL_SHA" ] && big_model_artifact_ready; then
         echo -n "$BIG_MODEL_SHA" > "$DIR/openpilot/selfdrive/modeld/models/.big_model_build_stamp"
       fi
