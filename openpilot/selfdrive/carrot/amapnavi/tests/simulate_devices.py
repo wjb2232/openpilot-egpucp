@@ -112,7 +112,11 @@ class AmapNaviWatcher:
 
   FIELDS = ("leftBlind", "rightBlind", "leftLine", "rightLine", "lineValid",
             "leftDevice", "rightDevice", "lfDrel", "lbDrel", "rfDrel", "rbDrel",
-            "lfDrelValid", "lbDrelValid", "rfDrelValid", "rbDrelValid", "extState")
+            "lfDrelValid", "lbDrelValid", "rfDrelValid", "rbDrelValid", "extState",
+            # 侧向标志拆成独立字段后新增（位图字段仅兼容保留）
+            "blindLidarL", "blindLidarLf", "blindLidarLb", "blindCombinedL", "blindCarL", "laneBlindL",
+            "blindLidarR", "blindLidarRf", "blindLidarRb", "blindCombinedR", "blindCarR", "laneBlindR",
+            "extBlinker")
 
   def __init__(self):
     import openpilot.cereal.messaging as messaging
@@ -288,9 +292,23 @@ def main():
       report.check("左右雷达+摄像头同时注册 (leftDevice/rightDevice=3)",
                    st.get("leftDevice") == 3 and st.get("rightDevice") == 3,
                    f"leftDevice={st.get('leftDevice')} rightDevice={st.get('rightDevice')}")
-      report.check("盲区位掩码含雷达(1)+摄像头(2)",
-                   st.get("leftBlind", 0) & 3 == 3 and st.get("rightBlind", 0) & 3 == 3,
+      # 测试里摄像头报 left_blind/right_blind=True，对应综合盲区位(bit1)
+      report.check("综合盲区位(bit1)已置位",
+                   bool(st.get("leftBlind", 0) & 2) and bool(st.get("rightBlind", 0) & 2),
                    f"leftBlind={st.get('leftBlind')} rightBlind={st.get('rightBlind')}")
+
+      # 侧向标志拆成独立字段后：按位序组装的结果必须与位图字段**完全一致**
+      #   位序 1=激光侧方 2=综合 4=车身 8=实线 16=前角 32=后角
+      def _assemble(side):
+        s = side
+        return ((1 if st.get(f"blindLidar{s}") else 0) | (2 if st.get(f"blindCombined{s}") else 0) |
+                (4 if st.get(f"blindCar{s}") else 0) | (8 if st.get(f"laneBlind{s}") else 0) |
+                (16 if st.get(f"blindLidar{s}f") else 0) | (32 if st.get(f"blindLidar{s}b") else 0))
+
+      report.check("独立字段组装后与位图一致(左)", _assemble("L") == st.get("leftBlind", -1),
+                   f"组装={_assemble('L')} 位图={st.get('leftBlind')}")
+      report.check("独立字段组装后与位图一致(右)", _assemble("R") == st.get("rightBlind", -1),
+                   f"组装={_assemble('R')} 位图={st.get('rightBlind')}")
       report.check("距离字段回填",
                    st.get("lfDrel") not in (None, 0) and st.get("lfDrelValid") == 1,
                    f"lfDrel={st.get('lfDrel')} valid={st.get('lfDrelValid')}")

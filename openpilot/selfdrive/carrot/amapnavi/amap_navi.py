@@ -58,7 +58,12 @@ def side_region_limit_mm(lane_width_m) -> float:
   limit = w * SIDE_REGION_FACTOR
   limit = max(SIDE_REGION_HARD_MIN_M, min(SIDE_REGION_HARD_MAX_M, limit))
   return limit * 1000.0
-from openpilot.selfdrive.carrot.amapnavi.shared_state import DT_BROADCAST, SharedData
+from openpilot.selfdrive.carrot.amapnavi.shared_state import (
+  BLINKER_LEFT,
+  BLINKER_RIGHT,
+  DT_BROADCAST,
+  SharedData,
+)
 from openpilot.selfdrive.carrot.amapnavi.transport import (
   LISTEN_PORT,
   LANE_PORT,
@@ -438,6 +443,27 @@ class AmapNaviServ:
     shared = self.shared_data
     msg = messaging.new_message('amapNavi')
     msg.valid = True
+    # 外挂转向灯板回传的转向灯状态：单独一个字段(extBlinker)。数据源只有
+    # shared.ext_blinker（板子真实回传，protocol.update_blinker），不用 CP 下发的
+    # 命令兜底——UI 要反映的是"控制板到底有没有在打灯"。
+    msg.amapNavi.extBlinker = int(shared.ext_blinker)
+
+    # 侧向标志：拆成独立字段，不再按位或。
+    #   左侧 6 类来源：激光侧方 / 激光前角 / 激光后角 / 综合盲区 / 车身盲区 / 实线
+    msg.amapNavi.blindLidarL = bool(shared.lidar_lblind)
+    msg.amapNavi.blindLidarLf = bool(shared.lidar_lfblind)
+    msg.amapNavi.blindLidarLb = bool(shared.lidar_lbblind)
+    msg.amapNavi.blindCombinedL = bool(shared.left_blind)
+    msg.amapNavi.blindCarL = bool(shared.lidar_car_lblind)
+    msg.amapNavi.laneBlindL = bool(shared.left_lane_blind)
+    msg.amapNavi.blindLidarR = bool(shared.lidar_rblind)
+    msg.amapNavi.blindLidarRf = bool(shared.lidar_rfblind)
+    msg.amapNavi.blindLidarRb = bool(shared.lidar_rbblind)
+    msg.amapNavi.blindCombinedR = bool(shared.right_blind)
+    msg.amapNavi.blindCarR = bool(shared.lidar_car_rblind)
+    msg.amapNavi.laneBlindR = bool(shared.right_lane_blind)
+
+    # 位图字段仅作兼容保留（旧代码/诊断用），UI 已改用上面的独立字段
     msg.amapNavi.leftBlind = ((8 if shared.left_lane_blind else 0) + (4 if shared.lidar_car_lblind else 0) +
                               (2 if shared.left_blind else 0) + (1 if shared.lidar_lblind else 0) +
                               (16 if shared.lidar_lfblind else 0) + (32 if shared.lidar_lbblind else 0))

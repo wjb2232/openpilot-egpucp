@@ -243,6 +243,23 @@ struct AmapNavi @0xda96579883444c35 {
 	# 本 fork 的 MetaData 没有该字段，所以由 amapnavi 算好后从这里下发。
 	lFrontBlind @16 :Bool;
 	rFrontBlind @17 :Bool;
+	# 外挂转向灯板回传的转向灯状态(0=灭 1=左 2=右，与 shared_state.BLINKER_* 一致)。
+	# 单独一个字段，不并入 leftBlind/rightBlind 的位图。
+	extBlinker @18 :Int32;
+	# 侧向标志拆成独立字段（不再按位或）。语义与 amapnavi.public_amap_navi 一一对应。
+	#   leftBlind/rightBlind 位图字段仅作兼容保留，UI 已改用下面这些。
+	blindLidarL @19 :Bool;      # 激光-左侧方(llidar_lblind)
+	blindLidarLf @20 :Bool;     # 激光-左前角
+	blindLidarLb @21 :Bool;     # 激光-左后角
+	blindCombinedL @22 :Bool;   # 综合盲区(左, shared.left_blind)
+	blindCarL @23 :Bool;        # 车身盲区(左, lidar_car_lblind)
+	laneBlindL @24 :Bool;       # 左侧实线
+	blindLidarR @25 :Bool;      # 激光-右侧方
+	blindLidarRf @26 :Bool;     # 激光-右前角
+	blindLidarRb @27 :Bool;     # 激光-右后角
+	blindCombinedR @28 :Bool;   # 综合盲区(右)
+	blindCarR @29 :Bool;        # 车身盲区(右)
+	laneBlindR @30 :Bool;       # 右侧实线
 }
 
 struct CustomReserved4 @0x80ae746ee2596b11 {

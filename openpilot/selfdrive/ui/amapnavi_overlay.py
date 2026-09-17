@@ -19,14 +19,28 @@ preimport 各进程模块，各进程再由 manager ``fork`` 出来并继承已�
 UI 代码必须重启 manager / 设备（``sudo reboot``）才会生效；只重启 UI 进程时
 屏幕会一直沿用 manager 启动那一刻的旧版本，表现为"改了没反应"。
 
-盲区位定义（``amapNavi.leftBlind`` / ``rightBlind``，与源端一致）::
+侧向标志（``amapNavi`` 的独立字段，不再按位或）::
 
-  bit0 (1)  激光雷达盲区
-  bit1 (2)  摄像头盲区
-  bit2 (4)  原车侧向盲区
-  bit3 (8)  实线
-  bit4 (16) 目标在侧前方（向上箭头）
-  bit5 (32) 目标在侧后方（向下箭头）
+  blindLidarL     激光-左侧方          blindLidarR     激光-右侧方
+  blindLidarLf    激光-左前角          blindLidarRf    激光-右前角
+  blindLidarLb    激光-左后角          blindLidarRb    激光-右后角
+  blindCombinedL  综合盲区(左)         blindCombinedR  综合盲区(右)
+  blindCarL       车身盲区(左)         blindCarR       车身盲区(右)
+  laneBlindL      左侧实线             laneBlindR      右侧实线
+
+  ``leftBlind`` / ``rightBlind`` 位图字段保留仅为兼容（旧代码/诊断），本模块不依赖它：
+  :meth:`AmapNaviView.blind` 内部把上面的独立字段组装成原有位序，绘制逻辑无感知。
+
+  组装位序（``blind()`` 用，与源端位图一致）::
+
+    bit0 (1)  激光雷达盲区          bit3 (8)  实线
+    bit1 (2)  综合盲区              bit4 (16) 目标在侧前方（向上箭头）
+    bit2 (4)  车身盲区              bit5 (32) 目标在侧后方（向下箭头）
+
+外挂转向灯（``amapNavi.extBlinker``，独立字段）::
+
+  0=灭 1=左 2=右 —— 来自外挂转向灯板回传的状态（板子实际在打什么灯），
+  用于在激光雷达行的雷达图标内侧画闪烁的转向箭头
 
 设备位定义（``leftDevice`` / ``rightDevice``）::
 
@@ -61,6 +75,7 @@ UI 代码必须重启 manager / 设备（``sudo reboot``）才会生效；只重
 不再叠深色描边/底衬。
 """
 
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -81,6 +96,10 @@ BLIND_STOCK_SIDE = 4
 BLIND_SOLID_LINE = 8
 BLIND_FRONT = 16
 BLIND_REAR = 32
+
+# 外挂转向灯板回传的转向灯状态（amapNavi.extBlinker，独立字段，不占盲区位图）
+BLINKER_LEFT = 1
+BLINKER_RIGHT = 2
 
 DEVICE_LIDAR = 1
 DEVICE_CAMERA = 2
@@ -120,6 +139,23 @@ LINE_BLUE = _c(0, 120, 255, 255)
 ARROW_RED = _c(255, 0, 0, 255)
 ARROW_YELLOW = _c(255, 215, 0, 255)
 DIST_TEXT_YELLOW = _c(255, 255, 0, 255)
+
+# 转向灯图标（样式与 c3-dev 一致：selfdrive/assets/icons_mici/onroad/turn_signal_left.png）
+#   右侧用同一张图水平翻转。闪烁节奏照搬 c3-dev：每 0.75s 冲到最亮，
+#   其余时间按一阶衰减到 20%（不是硬开关，看起来是"心跳"式闪动）。
+TURN_SIGNAL_BLINK_PERIOD = 1 / (80 / 60)   # 0.75s（c3-dev: Mazda 心跳节奏）
+TURN_LAMP_TEX = "icons_mici/onroad/turn_signal_left.png"
+# c3-dev 里这张贴图按 120x109 显示（外面套 150x150 区域）。C3 屏比 c3-dev 的
+# 仪表屏大得多，同样 120px 在这边显得偏小，所以先按 1.1 倍放到 132x120，
+# 再按需求加大 50% -> 198x180（贴图内箭头本体约占 84%，即约 166px）。
+TURN_LAMP_W = 198               # 显示宽
+TURN_LAMP_H = 180               # 高：保持贴图 120:109 的比例
+TURN_LAMP_GAP = 14              # 与雷达图标的水平间距
+TURN_LAMP_TEXT_RESERVE = 160    # 还要再让出的宽度（避开雷达图标外侧的四角距离文字）
+TURN_LAMP_DIM = 0.2             # 闪烁暗态亮度比例（c3-dev: 255*0.2）
+
+# 调试用截屏钩子：文件存在则把当前画面存到 /tmp/shot_<毫秒>.png 并删掉该文件
+SHOOT_FLAG = "/tmp/shoot"
 
 # ------------------------------------------------------------------ 布局
 CIRCLE_RADIUS = 46
@@ -169,11 +205,57 @@ class AmapNaviView:
   right_line: int = 0
   line_valid: bool = False
   ext_state: int = 0
+  # 外挂转向灯板回传的转向灯状态（0=灭 1=左 2=右），来自 amapNavi.extBlinker
+  ext_blinker: int = 0
+  # 侧向标志（独立字段，来自 amapNavi.blindLidarL 等，不再依赖位图）
+  blind_lidar_l: bool = False
+  blind_lidar_lf: bool = False
+  blind_lidar_lb: bool = False
+  blind_combined_l: bool = False
+  blind_car_l: bool = False
+  lane_blind_l: bool = False
+  blind_lidar_r: bool = False
+  blind_lidar_rf: bool = False
+  blind_lidar_rb: bool = False
+  blind_combined_r: bool = False
+  blind_car_r: bool = False
+  lane_blind_r: bool = False
   # corner -> (valid, 米)
   distances: dict = field(default_factory=dict)
 
   def blind(self, side: str) -> int:
-    return self.left_blind if side == "left" else self.right_blind
+    """由独立字段组装成位图（绘制逻辑保持原样；位序与原位图一致）。
+
+    位序：1=激光侧方 2=综合盲区 4=车身盲区 8=实线 16=激光前角 32=激光后角
+    """
+    bits = 0
+    if side == "left":
+      if self.blind_lidar_l:
+        bits |= BLIND_LIDAR
+      if self.blind_combined_l:
+        bits |= BLIND_CAMERA
+      if self.blind_car_l:
+        bits |= BLIND_STOCK_SIDE
+      if self.lane_blind_l:
+        bits |= BLIND_SOLID_LINE
+      if self.blind_lidar_lf:
+        bits |= BLIND_FRONT
+      if self.blind_lidar_lb:
+        bits |= BLIND_REAR
+    else:
+      if self.blind_lidar_r:
+        bits |= BLIND_LIDAR
+      if self.blind_combined_r:
+        bits |= BLIND_CAMERA
+      if self.blind_car_r:
+        bits |= BLIND_STOCK_SIDE
+      if self.lane_blind_r:
+        bits |= BLIND_SOLID_LINE
+      if self.blind_lidar_rf:
+        bits |= BLIND_FRONT
+      if self.blind_lidar_rb:
+        bits |= BLIND_REAR
+    return bits
 
   def device(self, side: str) -> int:
     return self.left_device if side == "left" else self.right_device
@@ -201,6 +283,19 @@ def read_amapnavi(sm):
     right_line=int(msg.rightLine),
     line_valid=bool(msg.lineValid),
     ext_state=int(getattr(msg, "extState", 0) or 0),
+    ext_blinker=int(getattr(msg, "extBlinker", 0) or 0),
+    blind_lidar_l=bool(getattr(msg, "blindLidarL", False)),
+    blind_lidar_lf=bool(getattr(msg, "blindLidarLf", False)),
+    blind_lidar_lb=bool(getattr(msg, "blindLidarLb", False)),
+    blind_combined_l=bool(getattr(msg, "blindCombinedL", False)),
+    blind_car_l=bool(getattr(msg, "blindCarL", False)),
+    lane_blind_l=bool(getattr(msg, "laneBlindL", False)),
+    blind_lidar_r=bool(getattr(msg, "blindLidarR", False)),
+    blind_lidar_rf=bool(getattr(msg, "blindLidarRf", False)),
+    blind_lidar_rb=bool(getattr(msg, "blindLidarRb", False)),
+    blind_combined_r=bool(getattr(msg, "blindCombinedR", False)),
+    blind_car_r=bool(getattr(msg, "blindCarR", False)),
+    lane_blind_r=bool(getattr(msg, "laneBlindR", False)),
   )
   for corner in ("lf", "lb", "rf", "rb"):
     valid = int(getattr(msg, f"{corner}DrelValid", 0) or 0)
@@ -379,6 +474,42 @@ def _arrow_side(cx, cy, to_left: bool, color: rl.Color) -> None:
     _tri(cx + half_l, cy, cx - half_l, cy - half_w, cx - half_l, cy + half_w, color)
 
 
+# 转向灯闪烁状态（模块级：两侧共用同一节奏，与 c3-dev 的单个 timer 行为一致）
+_turn_lamp_timer = 0.0
+_turn_lamp_alpha = 0.0
+
+
+def turn_lamp_alpha() -> int:
+  """转向灯图标当前亮度(0~255)：每 0.75s 冲到最亮，其余时间衰减到 20%。"""
+  global _turn_lamp_timer, _turn_lamp_alpha
+  now = time.monotonic()
+  if now - _turn_lamp_timer > TURN_SIGNAL_BLINK_PERIOD:
+    _turn_lamp_timer = now
+    _turn_lamp_alpha = 255.0
+  else:
+    _turn_lamp_alpha += (255.0 * TURN_LAMP_DIM - _turn_lamp_alpha) * 0.12
+  return int(max(0.0, min(255.0, _turn_lamp_alpha)))
+
+
+def draw_turn_lamp(cx: float, cy: float, is_left: bool) -> None:
+  """在雷达图标外侧画转向灯图标（c3-dev 同款贴图 + 心跳闪烁）。
+
+  位置左右**对称**：左灯在左雷达图标左侧、右灯在右雷达图标右侧。两侧都要
+  避开雷达图标外侧的四角距离文字（左侧右对齐往外、右侧左对齐往外），
+  所以再让出 ``TURN_LAMP_TEXT_RESERVE``。
+  """
+  offset = CIRCLE_RADIUS + DIST_TEXT_OFFSET_X + TURN_LAMP_TEXT_RESERVE + TURN_LAMP_GAP
+  icon_left = cx - offset - TURN_LAMP_W if is_left else cx + offset
+  try:
+    tex = gui_app.texture(TURN_LAMP_TEX, TURN_LAMP_W, TURN_LAMP_H, flip_x=not is_left)
+  except Exception:
+    return                      # 资产缺失时不影响其它绘制
+  if tex is None:
+    return
+  rl.draw_texture_ex(tex, rl.Vector2(float(icon_left), float(cy - TURN_LAMP_H / 2)), 0.0, 1.0,
+                     rl.Color(255, 255, 255, turn_lamp_alpha()))
+
+
 def _draw_text_with_bg(text, x, y, font_size, color, align, font=None) -> None:
   """带半透明黑底的文字（移植自源端 ``drawTextWithBg``）。
 
@@ -454,6 +585,16 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
   * 第二行  雷达/摄像头盲区圆 + 箭头 + 在线"浅色底 + 粗蓝圈" + 实线黄条，两侧为四角距离
   * 第三行  原车后盲区（红圆 + 向下黄箭头）
   """
+  # 调试用截屏钩子放在最前面：这样即使本次没有数据（面板不绘制）也能拍到画面。
+  #   C3 上没有 ffmpeg/scrot 等截图命令，需要看真实画面时：
+  #   ssh comma@<ip> "touch /tmp/shoot"  -> UI 把当前画面存成 /tmp/shot_<毫秒>.png
+  if os.path.exists(SHOOT_FLAG):
+    try:
+      os.remove(SHOOT_FLAG)
+      rl.take_screenshot(f"/tmp/shot_{int(time.time() * 1000)}.png")
+    except Exception:
+      pass
+
   view = read_amapnavi(sm)
   if view is None:
     return
@@ -466,7 +607,7 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
   leads = _radar_side_leads(sm)
 
   nothing_to_show = not (
-    view.left_blind or view.right_blind or view.left_device or view.right_device
+    view.blind("left") or view.blind("right") or view.left_device or view.right_device
     or view.has_distance or stock["left"] or stock["right"] or front["left"] or front["right"]
     or leads["left"][0] or leads["right"][0]
   )
@@ -545,6 +686,13 @@ def draw_bsd_panel(sm, rect: rl.Rectangle, font=None, show_lane_info: int | None
     if blind & BLIND_SOLID_LINE:
       bar_x = cx + r + DIST_TEXT_OFFSET_X if is_left else cx - r - DIST_TEXT_OFFSET_X - SOLID_BAR_WIDTH
       rl.draw_rectangle(int(bar_x), int(cy - r), SOLID_BAR_WIDTH, int(r * 2), LINE_YELLOW)
+
+    # 转向灯图标：外挂转向灯板**实际**在打该侧灯时（amapNavi.extBlinker）才显示，
+    #   样式/闪烁与 c3-dev 一致（贴图 + 0.75s 心跳），放在对应雷达图标左侧。
+    lamp = view.ext_blinker
+    lamp_on = (lamp == BLINKER_LEFT) if is_left else (lamp == BLINKER_RIGHT)
+    if lamp_on:
+      draw_turn_lamp(cx, cy, is_left)
   top_y += VERTICAL_SPACING
 
   # ---------------- 第三行：原车后盲区 ----------------
