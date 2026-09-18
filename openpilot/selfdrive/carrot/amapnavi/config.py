@@ -136,6 +136,7 @@ class UnifiedParams:
             "DynamicBlindRange": 0,
             "DynamicBlindDistance": 0,
             "DisableBlindSpot": 0,
+            "EnableCruiseStateShow": 1,
 
             "LidarBsdDelayTime": 10,
             "LidarFrontVDistTime": -50,

@@ -72,8 +72,11 @@ class NaviMessageBuilder:
           msg["gas_press"] = shared.gas_press
         if shared.break_press is not None:
           msg["break_press"] = shared.break_press
-        if shared.engaged is not None:
-          msg["engaged"] = shared.engaged
+        if unified_params.get_bool("EnableCruiseStateShow"):
+          if shared.engaged is not None:
+            msg["engaged"] = shared.engaged
+        else:
+          msg["engaged"] = False
         if not unified_params.get_bool("DisableBlindSpot"):
           if shared.left_blindspot is not None:
             msg["left_blindspot"] = shared.left_blindspot
