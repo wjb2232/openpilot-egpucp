@@ -70,7 +70,11 @@ echo "==> Backing up .git and release/"
 BK="/data/pre_release_backup_$(date +%m%d_%H%M)"
 mkdir -p "$BK"
 cp -a "$BUILD_DIR/.git" "$BK/git"
-cp -a "$BUILD_DIR/release" "$BK/release"
+# release/ is deleted by this very script, so it is already gone on a second run.
+# Backing it up is best effort (and `set -e` would abort the whole publish here).
+if [ -d "$BUILD_DIR/release" ]; then
+  cp -a "$BUILD_DIR/release" "$BK/release"
+fi
 echo "    saved to $BK"
 
 # ---------------------------------------------------------------------------
@@ -153,13 +157,15 @@ fi
 # in the directory
 cd $BUILD_DIR
 
-# Cleanup
-find . -name '*.a' -delete
-find . -name '*.o' -delete
-find . -name '*.os' -delete
-find . -name '*.pyc' -delete
-find . -name 'moc_*' -delete
-find . -name '__pycache__' -delete
+# Cleanup - best effort. A file this user cannot delete (a __pycache__ written by a
+# root-run process, for instance) must not abort the publish under `set -e`: that left
+# openpilot stopped with pydeps and the big model moved out of the tree.
+find . -name '*.a' -delete 2>/dev/null || true
+find . -name '*.o' -delete 2>/dev/null || true
+find . -name '*.os' -delete 2>/dev/null || true
+find . -name '*.pyc' -delete 2>/dev/null || true
+find . -name 'moc_*' -delete 2>/dev/null || true
+find . -name '__pycache__' -delete 2>/dev/null || true
 rm -rf .sconsign.dblite Jenkinsfile release/
 #rm -f openpilot/selfdrive/modeld/models/*.onnx
 # drop the legacy stamp inside modeld/; it is regenerated at repo root below

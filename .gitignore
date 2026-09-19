@@ -109,3 +109,7 @@ Pipfile
 .history
 .ionide
 .vs
+# chunked big-model artifacts (downloaded or locally compiled) and their bookkeeping
+openpilot/selfdrive/modeld/models/*.pkl.chunk*
+openpilot/selfdrive/modeld/models/.big_model_build_stamp
+openpilot/selfdrive/modeld/models/tg_input_devices.json

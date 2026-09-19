@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from openpilot.common.constants import CV
 from openpilot.selfdrive.carrot.deceleration_source import deceleration_source_presentation
 from openpilot.selfdrive.ui.amapnavi_overlay import draw_bsd_panel, draw_ext_state_badge, ext_state_from
+from openpilot.selfdrive.ui.big_model_badge import draw as draw_model_progress
 from openpilot.selfdrive.ui.onroad.exp_button import ExpButton
 from openpilot.selfdrive.ui.ui_state import ui_state, UIStatus
 from openpilot.system.hardware.usbgpu import usbgpu_badge_state
@@ -301,6 +302,7 @@ class HudRenderer(Widget):
     self._draw_date_time(rect)
     self._draw_tpms(rect)
     self._draw_egpu_badge(rect)
+    draw_model_progress(rect, self._font_semi_bold)
     self._draw_cruise_speed_animation(rect)
     draw_bsd_panel(ui_state.sm, rect, font=self._font_display)  # amapnavi 盲区图标 / 四角距离
 

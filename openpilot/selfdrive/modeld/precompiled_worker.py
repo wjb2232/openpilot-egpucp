@@ -19,6 +19,11 @@ def watch_parent(parent):
 
 
 def main():
+  # Move off modeld's core before loading tinygrad, so the GPU init threads and
+  # the inference loop never share a core with the modeld main thread.
+  from openpilot.selfdrive.modeld.worker_affinity import DEFAULT_WORKER_CORES, set_worker_affinity
+
+  set_worker_affinity(os.environ.get('WORKER_CORES', DEFAULT_WORKER_CORES))
   # Release the exclusive USB GPU when modeld exits, including a crash/SIGKILL.
   parent = os.getppid()
   if parent == 1:

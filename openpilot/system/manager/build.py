@@ -48,6 +48,21 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
     "downloaded_bytes": manifest.size,
     "total_bytes": manifest.size,
   }
+  # Chunked artifacts are the split format (warp on the integrated GPU) and are the fast
+  # ones; chunked_model owns the delivery preference and all of its bookkeeping.
+  from openpilot.selfdrive.modeld import chunked_model
+  if (chunked := chunked_model.auto_install(manifest, spinner, status_values)) is not None:
+    print(f"Using chunked eGPU model without SCons compilation: {chunked}")
+    return True
+  if chunked_model.download_deferred(manifest):
+    # The background downloader is pulling the chunked set right now: keep this boot short
+    # instead of fetching the precompiled set or starting the ~20 minute local compile.
+    # The HUD badge shows the progress and prompts for a reboot when it lands.
+    print("Chunked eGPU model is downloading in the background; skipping the boot build")
+    write_big_model_status(model_cache_dir(), "checking",
+                           detail="downloading chunked model in background", **status_values)
+    return True
+
   # Precompiled models carry their matching runtime; local SCons remains the fallback.
   from openpilot.selfdrive.modeld.precompiled_model import ensure_precompiled, record_failure
   precompiled = None

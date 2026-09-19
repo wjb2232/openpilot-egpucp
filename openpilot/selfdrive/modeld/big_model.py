@@ -25,6 +25,8 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from openpilot.selfdrive.modeld.big_model_status import BigModelStatusReporter
+from openpilot.selfdrive.modeld.model_source import MODEL_BASE
+from openpilot.selfdrive.modeld.precompiled_fetch import fetch_after_onnx
 
 
 DEFAULT_MANIFEST_URL = "https://upload.shind0.synology.me/models/comma4-big-cinque-v2/manifest.json"
@@ -33,7 +35,10 @@ CINQUE_V2_MODEL = {
   "filename": "big_driving_supercombo.onnx",
   "size": 766_040_736,
   "sha256": "09d080f36965bb2a0790500452bd328aa03c484d0222aa79d1ad9f021a522aec",
-  "url": "https://upload.shind0.synology.me/models/comma4-big-cinque-v2/big_driving_supercombo.onnx",
+  # Served from the self-hosted mirror; precompiled.json and firmware/amdgpu are
+  # resolved relative to this URL (see precompiled_model.ensure_precompiled /
+  # ensure_firmware), so each model keeps its own directory under egpu/models/.
+  "url": f"{MODEL_BASE}/models/cinque-v2/big_driving_supercombo.onnx",
 }
 MAX_MANIFEST_SIZE = 64 * 1024
 MAX_MODEL_SIZE = 4 * 1024 * 1024 * 1024
@@ -74,8 +79,10 @@ class BigModelManifest:
       raise ValueError("invalid model URL")
 
     resolved_url = urljoin(manifest_url, model_url)
-    if urlparse(resolved_url).scheme != "https":
-      raise ValueError("model URL must use HTTPS")
+    # http is allowed so a self-hosted / LAN mirror can serve the model; integrity is
+    # guaranteed by the sha256 check on download, not by TLS.
+    if urlparse(resolved_url).scheme not in ("http", "https"):
+      raise ValueError("model URL must use HTTP(S)")
     return cls(model_id=model_id, filename=filename, size=size, sha256=sha256, url=resolved_url)
 
   @property
@@ -137,6 +144,12 @@ def _write_state(active: BigModelManifest, previous: BigModelManifest | None, ca
 
 
 def fetch_manifest(manifest_url: str = DEFAULT_MANIFEST_URL, timeout: float = 15.0) -> BigModelManifest:
+  # A model picked in the web UI takes priority over this branch's pin, so the
+  # downloader targets whatever the user selected (see model_catalog).
+  from openpilot.selfdrive.modeld.model_catalog import selected_manifest
+  chosen = selected_manifest()
+  if chosen is not None:
+    return chosen
   # Pin Cinque v2 from commaai/openpilot#38823 at 37bfa141 on this branch.
   # Keep the environment/CLI override path below so a different manifest can
   # still be tested explicitly without changing this branch.
@@ -154,10 +167,10 @@ def fetch_manifest(manifest_url: str = DEFAULT_MANIFEST_URL, timeout: float = 15
 def wait_for_manifest_network(manifest_url: str, timeout: float = 60.0,
                               connect_timeout: float = 2.0, poll_interval: float = 2.0) -> bool:
   parsed = urlparse(manifest_url)
-  if parsed.scheme != "https" or parsed.hostname is None:
-    raise ValueError("model manifest URL must use HTTPS and include a host")
+  if parsed.scheme not in ("http", "https") or parsed.hostname is None:
+    raise ValueError("model manifest URL must use HTTP(S) and include a host")
 
-  address = (parsed.hostname, parsed.port or 443)
+  address = (parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80))
   deadline = time.monotonic() + max(0.0, timeout)
   while True:
     remaining = max(0.0, deadline - time.monotonic())
@@ -266,12 +279,11 @@ def ensure_big_model(manifest_url: str = DEFAULT_MANIFEST_URL, cache_dir: Path |
   if changed:
     previous = active if active is not None and model_path(active, cache_dir).is_file() else state["previous"]
     _write_state(manifest, previous, cache_dir)
-    keep = {manifest.cache_filename}
-    if previous is not None:
-      keep.add(previous.cache_filename)
-    for old_model in cache_dir.glob("big_driving_supercombo-*.onnx"):
-      if old_model.name not in keep:
-        old_model.unlink()
+    # Models coexist so the web UI can switch between them: do NOT delete the
+    # other ONNX files here. Removing one is an explicit action in the web
+    # model manager (see model_catalog / features/egpu_model_select).
+    from openpilot.selfdrive.modeld.model_catalog import register
+    register(manifest, cache_dir)
   return path, changed
 
 
@@ -331,7 +343,13 @@ def main() -> int:
       reporter = BigModelStatusReporter(cache_dir)
       try:
         reporter.update("checking", detail="checking model catalog")
-        if active_manifest() is None and args.network_wait_seconds > 0.0:
+        # Wait whenever something still has to be fetched, not only when no model is
+        # active at all: switching models needs a new ONNX, and DNS is often not up
+        # yet when this background downloader is started right after boot. Without
+        # this the switch silently fails and the device keeps the previous model.
+        target = fetch_manifest(args.manifest_url)
+        needs_fetch = active_manifest() is None or not model_path(target).is_file()
+        if needs_fetch and args.network_wait_seconds > 0.0:
           print(f"waiting up to {args.network_wait_seconds:g}s for the big model server")
           reporter.update("checking", detail="waiting for network")
           if not wait_for_manifest_network(args.manifest_url, args.network_wait_seconds):
@@ -344,6 +362,8 @@ def main() -> int:
                                          progress_callback=reporter.download_progress,
                                          phase_callback=phase)
         manifest = active_manifest(cache_dir)
+        # The ONNX is in place now; pull the precompiled artifacts in the same boot.
+        fetch_after_onnx(manifest, reporter)
         reporter.update("compiled" if active_model_compiled() else "ready",
                         model_id=manifest.model_id if manifest is not None else None,
                         sha256=manifest.sha256 if manifest is not None else None,

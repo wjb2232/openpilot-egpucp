@@ -8,6 +8,7 @@ import pytest
 import openpilot.selfdrive.modeld.big_model as big_model
 from openpilot.selfdrive.modeld.big_model import BigModelManifest
 from openpilot.selfdrive.modeld.big_model_status import BigModelStatusReporter, read_big_model_status, write_big_model_status
+from openpilot.selfdrive.modeld.model_source import MODEL_BASE
 
 
 class FakeResponse:
@@ -67,7 +68,10 @@ def test_default_manifest_is_pinned_to_cinque_v2(monkeypatch):
   assert manifest.model_id == "comma-pr38823-cinque-v2-37bfa141-09d080f3"
   assert manifest.size == 766_040_736
   assert manifest.sha256 == "09d080f36965bb2a0790500452bd328aa03c484d0222aa79d1ad9f021a522aec"
-  assert manifest.url == "https://upload.shind0.synology.me/models/comma4-big-cinque-v2/big_driving_supercombo.onnx"
+  # The artifact is served from the self-hosted mirror, where every model keeps its
+  # own directory (precompiled.json resolves relative to this URL), so the pinned
+  # fallback points into our layout rather than upstream's Synology path.
+  assert manifest.url == f"{MODEL_BASE}/models/cinque-v2/big_driving_supercombo.onnx"
 
 
 def test_big_model_tinygrad_custom_op_is_supported():

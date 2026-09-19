@@ -317,13 +317,16 @@ function invalidate_modeld_build_if_needed {
     FORCE_REBUILD=1
   fi
 
-  if [ -n "$BIG_MODEL_SHA" ]; then
-    old_big_stamp="$(cat "$big_stamp_path" 2>/dev/null || true)"
-    if [ "$BIG_MODEL_SHA" != "$old_big_stamp" ] || ! big_model_artifact_ready; then
-      echo "USB eGPU big model changed or needs compilation."
-      FORCE_REBUILD=1
-    fi
-  fi
+  # The eGPU big model is content-addressed and delivered by download first:
+  # start_big_model_update() runs `big_model --ensure-if-egpu` in the background,
+  # which fetches the ONNX and then the chunked (or precompiled) artifacts while
+  # openpilot is already running. A missing or not-yet-downloaded artifact must
+  # NOT set FORCE_REBUILD here: releases are published without the big model, so
+  # that check fired on every boot of every device with an eGPU attached and ran
+  # the whole SCons build for nothing. Local compilation stays available as the
+  # last resort inside build_usbgpu_model(), and only runs when it is really
+  # needed (no download available and the GPU is present).
+  # BIG_MODEL_SHA is still used below to refresh the stamp after a real rebuild.
 }
 
 function prepare_big_model_if_needed {
@@ -346,9 +349,35 @@ function prepare_big_model_if_needed {
   # retrying readiness check while the build screen remains visible.
 }
 
+function run_big_model_update {
+  if command -v ionice >/dev/null 2>&1; then
+    PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
+  else
+    PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
+  fi
+}
+
+function big_model_update_failed {
+  # status.json carries state="error" when the downloader gave up (DNS not up yet
+  # right after boot, a dropped link, ...). Anything else counts as done.
+  python3 -c 'import json, sys
+from openpilot.selfdrive.modeld.big_model import model_cache_dir
+try:
+    state = json.load(open(str(model_cache_dir() / "status.json"))).get("state")
+except Exception:
+    state = None
+sys.exit(0 if state == "error" else 1)' 2>/dev/null
+}
+
 function start_big_model_update {
   local log_path="/tmp/big_model_update.log"
   local lock_path="/tmp/big_model_update.lock"
+  # The downloader gives up on its first error, and a cold boot starts it before
+  # DNS/USB enumeration are ready. Nothing used to retry until the next boot, so a
+  # switch to another model silently did not happen. Retry here: this runs in a
+  # detached subshell, so boot is never blocked by the retries either.
+  local attempts=4
+  local delay=180
 
   if command -v pgrep >/dev/null 2>&1 && pgrep -f '[o]penpilot.selfdrive.modeld.big_model --ensure-if-egpu' >/dev/null 2>&1; then
     return
@@ -359,18 +388,20 @@ function start_big_model_update {
     (
       exec 9>"$lock_path"
       flock -n 9 || exit 0
-      if command -v ionice >/dev/null 2>&1; then
-        PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
-      else
-        PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60
-      fi
+      for attempt in $(seq 1 "$attempts"); do
+        run_big_model_update
+        big_model_update_failed || break
+        [ "$attempt" -lt "$attempts" ] && sleep "$delay"
+      done
     ) >> "$log_path" 2>&1 &
   else
-    if command -v ionice >/dev/null 2>&1; then
-      PYTHONUNBUFFERED=1 ionice -c 3 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 >> "$log_path" 2>&1 &
-    else
-      PYTHONUNBUFFERED=1 nice -n 10 python3 -m openpilot.selfdrive.modeld.big_model --ensure-if-egpu --network-wait-seconds 60 >> "$log_path" 2>&1 &
-    fi
+    (
+      for attempt in $(seq 1 "$attempts"); do
+        run_big_model_update
+        big_model_update_failed || break
+        [ "$attempt" -lt "$attempts" ] && sleep "$delay"
+      done
+    ) >> "$log_path" 2>&1 &
   fi
 }
 

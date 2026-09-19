@@ -14,6 +14,7 @@ from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from openpilot.selfdrive.modeld.big_model import active_manifest, model_cache_dir
+from openpilot.selfdrive.modeld.firmware import ensure_firmware
 
 PROTOCOL = 1
 MAX_CATALOG = 64 * 1024
@@ -39,8 +40,11 @@ def validate_catalog(value: dict, model_sha: str, catalog_url: str) -> dict:
     if type(artifact.get('size')) is not int or not 0 < artifact['size'] <= limit:
       raise ValueError('invalid artifact size')
     artifact['url'] = urljoin(catalog_url, artifact['url'])
-    if urlparse(artifact['url']).scheme != 'https' or urlparse(artifact['url']).netloc != urlparse(catalog_url).netloc:
-      raise ValueError('artifact must use the model server HTTPS origin')
+    # http is allowed: self-hosted / LAN model servers often have no TLS, and integrity
+    # is already guaranteed by the mandatory sha256 check above (and in download()).
+    parsed = urlparse(artifact['url'])
+    if parsed.scheme not in ('http', 'https') or parsed.netloc != urlparse(catalog_url).netloc:
+      raise ValueError(f'artifact must be served from the model server origin: {parsed.netloc}')
   return value
 
 
@@ -115,6 +119,9 @@ def ensure_precompiled(model=None, cache_dir: Path | None = None, progress=None)
   model = model or active_manifest()
   if model is None:
     return None
+  # Firmware is tiny and required before the first GPU init. Fetch it before the
+  # early return below, so an already-installed model still gets its firmware.
+  ensure_firmware(model, download)
   root = (cache_dir or model_cache_dir()) / 'precompiled' / model.sha256
   existing = installed(model, cache_dir)
   if existing:
@@ -165,7 +172,11 @@ def record_failure(path: Path, error: BaseException | str, phase: str) -> bool:
   from openpilot.selfdrive.modeld.helpers import usbgpu_pcie_not_ready
   detail = str(error)
   transient = (usbgpu_pcie_not_ready(error) or isinstance(error, (TimeoutError, BrokenPipeError)) or
-               'precompiled eGPU worker timed out' in detail or 'precompiled eGPU worker exited' in detail)
+               'precompiled eGPU worker timed out' in detail or 'precompiled eGPU worker exited' in detail or
+               # Losing the USB GPU lock race (modeld from a previous run, a compile, or a
+               # diagnostic tool holding it) is contention, not a broken artifact. Treating it
+               # as permanent blacklisted the artifact until someone noticed and cleared it.
+               'Failed to acquire lock file' in detail)
   value = json.loads((path.parent / 'installed.json').read_text())
   failure = {'time': time.time(), 'phase': phase, 'rejected': not transient,  # noqa: TID251 - correlate persisted failures with boot logs
              'pickle_sha256': value['pickle']['sha256'], 'error': detail[-16384:]}
