@@ -228,10 +228,11 @@
     add(model.sha256.slice(0, 12) + "…");
     el.appendChild(badges);
 
-    // Render the bar for the active model as well: a first-time download has nothing
-    // "downloaded" yet, so gating on model.downloaded hid the bar exactly while the
-    // download was running. The amount line mirrors the settings card's wording.
-    if (model.downloaded || model.active) {
+    // Render the bar for the active model and for the selected one as well: while a
+    // switch is downloading, that model is neither "downloaded" nor "active" yet, so
+    // gating on those two hid the bar exactly while the transfer was running.
+    // The amount line mirrors the settings card's wording.
+    if (model.downloaded || model.active || model.selected) {
       const bar = document.createElement("div");
       bar.className = "progress";
       const fill = document.createElement("i");
