@@ -20,3 +20,6 @@ if [ -z "$AGNOS_VERSION" ]; then
 fi
 
 export STAGING_ROOT="/data/safe_staging"
+
+# self-hosted chestnut model catalog (adds self-compiled models to the picker)
+export SP_MODELS_URL_CHESTNUT="http://op.gitop.vip:82/egpu/c3-dev/c3-chestnut-custom/chestnut_catalog.json"

@@ -146,6 +146,11 @@ class ModelFetcher:
   MODEL_URL_MIRROR = "https://ghproxy.net/" + MODEL_URL
   MODEL_URL_CHESTNUT_MIRROR = "https://ghproxy.net/" + MODEL_URL_CHESTNUT
 
+  # [custom-catalog-patch] 自定义 chestnut catalog（本机自编译模型）。
+  # 优先级：env SP_MODELS_URL_CHESTNUT > param ChestnutModelsUrl > 此内置常量。
+  # 内置常量是最后一道保险：即使 env 被子进程剥离、launch_env.sh 被 update 覆盖，也依然生效。
+  MODEL_URL_CHESTNUT_CUSTOM = "http://op.gitop.vip:82/egpu/c3-dev/c3-chestnut-custom/chestnut_catalog.json"
+
   MODEL_SOURCES = {
     "qcom": (MODEL_URL, ""),
     "chestnut": (MODEL_URL_CHESTNUT, "_Chestnut"),
@@ -169,15 +174,38 @@ class ModelFetcher:
     return "chestnut" if chestnut_present else "qcom"
 
   @classmethod
+  def custom_url(cls, source: str) -> str:
+    # [custom-catalog-patch] 自定义 catalog 地址，仅用于 chestnut 源
+    if source != "chestnut":
+      return ""
+    url = os.environ.get("SP_MODELS_URL_CHESTNUT", "").strip()
+    if url:
+      return url
+    try:
+      p = Params().get("ChestnutModelsUrl")
+      if p:
+        return str(p).strip()
+    except Exception:
+      pass
+    return getattr(cls, "MODEL_URL_CHESTNUT_CUSTOM", "")
+
+  @classmethod
   def model_urls(cls, source: str) -> tuple[str, ...]:
     model_url, _ = cls.MODEL_SOURCES[source]
     mirror = cls.MODEL_URL_MIRROR if source == "qcom" else cls.MODEL_URL_CHESTNUT_MIRROR
-    return (mirror, model_url)
+    urls = [mirror, model_url]
+    if custom := cls.custom_url(source):
+      urls.insert(0, custom)
+    return tuple(urls)
 
   def _fetch_and_cache_models(self, source: str) -> list[custom.ModelManagerSP.ModelBundle] | None:
     """Fetches fresh model data from remote and updates cache.
     Returns None when every mirror and the original URL fail.
     """
+    custom = self.custom_url(source)
+    cached_data, _ = self.model_caches[source].get()
+    official_parsed = None
+
     for model_url in self.model_urls(source):
       try:
         response = requests.get(model_url, timeout=10)
@@ -192,9 +220,21 @@ class ModelFetcher:
 
         json_data = response.json()
         parsed = self.model_parser.parse_models(json_data)
-        if parsed:
-          self.model_caches[source].set(json_data)
-          cloudlog.debug(f"Successfully updated models cache for {source} via {model_url}")
+        if not parsed:
+          return parsed
+
+        if custom and model_url != custom:
+          # [custom-catalog-patch] 自定义 catalog 已配置但没拉到：官方源只做最后的只读兜底，
+          # 绝不覆盖缓存。否则会把自编译模型挤出列表，并触发 active bundle 被重置。
+          if cached_data:
+            cloudlog.warning(f"{source}: custom catalog unreachable, keeping cached catalog")
+            return None
+          cloudlog.warning(f"{source}: custom catalog unreachable and cache empty, using official catalog (read-only)")
+          official_parsed = parsed
+          continue
+
+        self.model_caches[source].set(json_data)
+        cloudlog.debug(f"Successfully updated models cache for {source} via {model_url}")
         return parsed
 
       except ConnectionError as e:
@@ -206,7 +246,7 @@ class ModelFetcher:
       except Exception as e:
         cloudlog.exception(f"Unexpected error fetching models via {model_url}: {e}")
 
-    return None
+    return official_parsed
 
   @staticmethod
   def _cache_matches_source(source: str, cached_data: dict) -> bool:
