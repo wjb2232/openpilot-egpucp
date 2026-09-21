@@ -34,7 +34,18 @@ def validate_catalog(value: dict, model_sha: str, catalog_url: str) -> dict:
   if value.get('frame_skip') != 4 or value.get('camera_resolutions') != [[1928, 1208], [1344, 760]]:
     raise ValueError('incompatible precompiled model inputs')
   for name, limit in [('pickle', 4 * 1024**3), ('runtime', 128 * 1024**2)]:
-    artifact = value[name]
+    artifact = value.get(name)
+    if artifact is None:
+      # A model published with only a chunked set (its precompiled artifacts do not
+      # exist: the warp-on-QCOM precompiled layout turned out not to survive
+      # dump/load, so the fast path ships as chunks instead) is valid. The chunked
+      # block below is then the only delivery and the precompiled path stays
+      # unavailable for it.
+      if value.get('chunked') is None:
+        raise ValueError(f'missing {name} artifact')
+      continue
+    if not isinstance(artifact, dict):
+      raise ValueError(f'invalid {name} artifact')
     if not SHA256.fullmatch(artifact.get('sha256', '')):
       raise ValueError('invalid artifact hash')
     if type(artifact.get('size')) is not int or not 0 < artifact['size'] <= limit:
