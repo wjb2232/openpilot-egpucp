@@ -32,6 +32,12 @@ WIDE_CAM_MAX_SPEED = 10.0  # m/s (22 mph)
 ROAD_CAM_MIN_SPEED = 15.0  # m/s (34 mph)
 INF_POINT = np.array([1000.0, 0.0, 0.0])
 
+# First-pass optical-axis alignment for the J501 dual IMX390 installation.
+# These are UI overlay corrections only; replace them with measured per-camera
+# extrinsics when the checkerboard/road calibration is available.
+ROAD_MODEL_X_OFFSET_PX = 25.0
+WIDE_MODEL_X_OFFSET_PX = 35.0
+
 
 class AugmentedRoadView(CameraView):
   def __init__(self, stream_type: VisionStreamType = VisionStreamType.VISION_STREAM_ROAD):
@@ -111,8 +117,11 @@ class AugmentedRoadView(CameraView):
     if self._suppress_camera_for_cluster:
       rl.draw_rectangle_rec(self._content_rect, rl.BLACK)
     else:
-      # Render the base camera view
-      super()._render(rect)
+      # Render into the same inner rectangle used by the model/HUD. Passing
+      # the outer rect here makes low-resolution camera streams render smaller
+      # than their viewport because CameraView applies the transform twice
+      # against different rectangle sizes.
+      super()._render(self._content_rect)
     cam_ms = (time.monotonic() - _t) * 1000.0
 
     if not self._suppress_camera_for_cluster:
@@ -172,7 +181,10 @@ class AugmentedRoadView(CameraView):
     rl.draw_rectangle_rounded_lines_ex(border_rect, border_roundness, 10, UI_BORDER_SIZE, border_color)
 
   def _switch_stream_if_needed(self, sm):
-    if sm['selfdriveState'].experimentalMode and WIDE_CAM in self.available_streams:
+    # The J501 has both forward cameras continuously available. Camera choice
+    # here affects display only (modeld still consumes road + wide every run),
+    # so switch by speed regardless of experimental-mode state.
+    if WIDE_CAM in self.available_streams:
       v_ego = sm['carState'].vEgo
       if v_ego < WIDE_CAM_MAX_SPEED:
         target = WIDE_CAM
@@ -226,21 +238,29 @@ class AugmentedRoadView(CameraView):
     is_wide_camera = self.stream_type == WIDE_CAM
     intrinsic = device_camera.ecam.intrinsics if is_wide_camera else device_camera.fcam.intrinsics
     calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
-    zoom = 2.0 if is_wide_camera else 1.1
-
-    # Calculate transforms for vanishing point
-    calib_transform = intrinsic @ calibration
-    kep = calib_transform @ INF_POINT
 
     # Calculate center points and dimensions
     x, y = self._content_rect.x, self._content_rect.y
     w, h = self._content_rect.width, self._content_rect.height
     cx, cy = intrinsic[0, 2], intrinsic[1, 2]
 
-    # Calculate max allowed offsets with margins
+    # The old fixed road zoom (1.1) only happened to fit the stock 1928-wide
+    # stream. A 1344-wide IMX390 stream was consequently drawn at about
+    # 1478x836 inside a roughly 2100x1020 viewport. Compute the minimum zoom
+    # needed to cover the viewport, while retaining the stock lower bounds.
     margin = 5
-    max_x_offset = cx * zoom - w / 2 - margin
-    max_y_offset = cy * zoom - h / 2 - margin
+    frame_w = float(self.frame.width) if self.frame is not None else 2.0 * cx
+    frame_h = float(self.frame.height) if self.frame is not None else 2.0 * cy
+    fill_zoom = max((w + 2.0 * margin) / frame_w, (h + 2.0 * margin) / frame_h)
+    zoom = max(2.0 if is_wide_camera else 1.1, fill_zoom)
+
+    # Calculate transforms for vanishing point
+    calib_transform = intrinsic @ calibration
+    kep = calib_transform @ INF_POINT
+
+    # Calculate max allowed offsets with margins
+    max_x_offset = max(0.0, cx * zoom - w / 2 - margin)
+    max_y_offset = max(0.0, cy * zoom - h / 2 - margin)
 
     # Calculate and clamp offsets to prevent out-of-bounds issues
     try:
@@ -265,7 +285,12 @@ class AugmentedRoadView(CameraView):
       [0.0, zoom, (h / 2 + y - y_offset) - (cy * zoom)],
       [0.0, 0.0, 1.0]
     ])
-    self.model_renderer.set_transform(video_transform @ calib_transform)
+    # Keep independent coarse horizontal alignment for the two physical
+    # cameras. Both observed overlays were slightly left of the vehicle axis,
+    # with the 190-degree camera needing the larger correction.
+    model_transform = video_transform @ calib_transform
+    model_transform[0, 2] += WIDE_MODEL_X_OFFSET_PX if is_wide_camera else ROAD_MODEL_X_OFFSET_PX
+    self.model_renderer.set_transform(model_transform)
 
     return self._cached_matrix
 

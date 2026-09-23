@@ -30,12 +30,38 @@ USBGPU_ENUMERATION_WAIT_SECONDS = 20.0
 USBGPU_ENUMERATION_POLL_INTERVAL = 1.0
 
 
+def check_local_gpu(timeout: float = 30.0) -> str | None:
+  """Run a local-GPU workload to prove the compile path is usable.
+
+  Local-GPU mode (Jetson AGX Orin): this replaces the external USB AMD GPU
+  readiness check with a tinygrad CUDA smoke test on the integrated GPU.
+  """
+  env = os.environ.copy()
+  python_paths = [os.path.join(BASEDIR, "tinygrad_repo"), BASEDIR]
+  python_paths.extend(path for path in env.get("PYTHONPATH", "").split(os.pathsep) if path)
+  env.update({"DEV": "CUDA", "PYTHONPATH": os.pathsep.join(dict.fromkeys(python_paths))})
+  code = "from tinygrad import Tensor; x = Tensor.rand(1 << 20).realize(); [x.numpy() for _ in range(8)]"
+  try:
+    result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
+                            timeout=timeout, check=False)
+  except subprocess.TimeoutExpired:
+    return "GPU check timed out"
+  if result.returncode == 0:
+    return None
+  detail = (result.stderr or result.stdout or "").strip()[-300:]
+  return f"GPU incompatible: {detail}"
+
+
 def build_usbgpu_model(spinner: Spinner) -> bool:
-  """Build the optional big model without making the normal build depend on it."""
+  """Build the optional big model without making the normal build depend on it.
+
+  Local-GPU mode (Jetson AGX Orin): the big model is compiled for the
+  integrated GPU via SCons. Precompiled artifacts are skipped because they are
+  built for the external USB AMD GPU runtime and cannot run on this device.
+  """
   from openpilot.selfdrive.modeld.big_model import active_manifest, active_model_path, model_cache_dir
   from openpilot.selfdrive.modeld.big_model_status import write_big_model_status
   from openpilot.selfdrive.modeld.helpers import modeld_pkl_path, usbgpu_pcie_not_ready, usbgpu_present
-  from openpilot.system.hardware.usbgpu import check_usbgpu
 
   model_path = active_model_path()
   manifest = active_manifest()
@@ -48,61 +74,24 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
     "downloaded_bytes": manifest.size,
     "total_bytes": manifest.size,
   }
-  # Precompiled models carry their matching runtime; local SCons remains the fallback.
-  from openpilot.selfdrive.modeld.precompiled_model import ensure_precompiled, record_failure
-  precompiled = None
-  try:
-    spinner.update("USB eGPU big model\nChecking precompiled model")
-    def download_progress(done, total):
-      spinner.update(f"USB eGPU big model\nDownloading precompiled model {done * 100 // total}%")
-      write_big_model_status(model_cache_dir(), "downloading", model_id=manifest.model_id, sha256=manifest.sha256,
-                             downloaded_bytes=done, total_bytes=total, detail="precompiled model")
-    precompiled = ensure_precompiled(manifest, progress=download_progress)
-  except Exception as exc:
-    print(f"Precompiled eGPU model unavailable; using local compiler: {exc}")
-  if precompiled is not None:
-    try:
-      if usbgpu_present():
-        spinner.update("USB eGPU big model\nValidating precompiled model")
-        validation = subprocess.run([sys.executable, '-m', 'openpilot.selfdrive.modeld.precompiled_runner', str(precompiled)],
-                                    cwd=BASEDIR, check=True, timeout=120, text=True,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        print(validation.stdout, end='')
-      write_big_model_status(model_cache_dir(), "compiled", detail="downloaded precompiled model", **status_values)
-      print(f"Using precompiled eGPU model without SCons compilation: {precompiled}")
-      return True
-    except Exception as exc:
-      output = getattr(exc, 'output', '') or ''
-      if isinstance(output, bytes):
-        output = output.decode('utf-8', 'replace')
-      if output:
-        print(output, end='')
-      failure = TimeoutError(output or str(exc)) if isinstance(exc, subprocess.TimeoutExpired) else output or exc
-      if not record_failure(precompiled, failure, 'boot_validation'):
-        # USB enumeration can succeed with ignition off while the GPU's 12V
-        # supply is absent. Keep the verified artifact for the next model start.
-        detail = 'precompiled model verified; waiting for eGPU readiness or validation retry'
-        write_big_model_status(model_cache_dir(), 'waiting_for_ignition', detail=detail, **status_values)
-        print(f'Precompiled eGPU validation deferred: {detail}')
-        return True
-      print(f"Precompiled eGPU validation failed; using local compiler: {exc}")
+  spinner.update("Local GPU big model\nChecking model")
   present = usbgpu_present()
   if not present:
     wait_started = time.monotonic()
     write_big_model_status(model_cache_dir(), "waiting_for_ignition",
-                           detail="waiting for eGPU USB re-enumeration", **status_values)
+                           detail="waiting for local GPU readiness", **status_values)
     while time.monotonic() - wait_started < USBGPU_ENUMERATION_WAIT_SECONDS:
       elapsed = int(time.monotonic() - wait_started)
-      spinner.update(f"USB eGPU big model\nWaiting for USB · {elapsed:02d}s")
+      spinner.update(f"Local GPU big model\nWaiting for GPU · {elapsed:02d}s")
       time.sleep(USBGPU_ENUMERATION_POLL_INTERVAL)
       present = usbgpu_present()
       if present:
-        print(f"USB eGPU returned after {time.monotonic() - wait_started:.1f}s; continuing optional model compilation")
+        print(f"Local GPU ready after {time.monotonic() - wait_started:.1f}s; continuing optional model compilation")
         break
 
   if not present:
     write_big_model_status(model_cache_dir(), "waiting_for_ignition",
-                           detail="turn ignition on, then restart to compile", **status_values)
+                           detail="local GPU unavailable; restart to compile", **status_values)
     return False
 
   pkl_path = Path(modeld_pkl_path(usbgpu=True))
@@ -121,26 +110,24 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
 
   readiness_error = None
   for readiness_attempt in range(1, USBGPU_READINESS_ATTEMPTS + 1):
-    check_message = (f"USB eGPU big model\nChecking GPU · " +
+    check_message = (f"Local GPU big model\nChecking GPU · " +
                      f"{readiness_attempt}/{USBGPU_READINESS_ATTEMPTS} · up to {USBGPU_READINESS_TIMEOUT:.0f}s")
     spinner.update(check_message)
     write_big_model_status(model_cache_dir(), "checking", detail=check_message.replace("\n", " "), **status_values)
-    # A successful GPU workload proves the compile path is usable. The xHCI
-    # LEC can still record recoverable packet retries, which the interactive
-    # diagnostic reports strictly but must not block an optional compilation.
-    readiness_error = check_usbgpu(timeout=USBGPU_READINESS_TIMEOUT, require_clean_link=False)
+    # A successful local-GPU workload proves the compile path is usable.
+    readiness_error = check_local_gpu(timeout=USBGPU_READINESS_TIMEOUT)
     if readiness_error is None:
       break
     if readiness_error not in USBGPU_TRANSIENT_READINESS_ERRORS or readiness_attempt >= USBGPU_READINESS_ATTEMPTS:
       break
-    message = (f"USB eGPU transient readiness error: {readiness_error}; retrying in "
+    message = (f"Local GPU transient readiness error: {readiness_error}; retrying in "
                f"{USBGPU_READINESS_RETRY_INTERVAL:.0f}s ({readiness_attempt}/{USBGPU_READINESS_ATTEMPTS})")
     print(message)
     spinner.update(message)
     write_big_model_status(model_cache_dir(), "waiting_for_ignition", detail=message, **status_values)
     time.sleep(USBGPU_READINESS_RETRY_INTERVAL)
   if readiness_error is not None:
-    message = f"USB eGPU not ready for optional model compilation: {readiness_error}"
+    message = f"Local GPU not ready for optional model compilation: {readiness_error}"
     print(message)
     spinner.update(message)
     write_big_model_status(model_cache_dir(), "waiting_for_ignition", detail=readiness_error, **status_values)
@@ -150,10 +137,10 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
   compile_started_at = time.time()
   for attempt in range(1, USBGPU_BUILD_ATTEMPTS + 1):
     # Never delete generated PKL artifacts here. A compiled model must survive
-    # transient eGPU/hub failures and subsequent boot attempts. Model versions
-    # use SHA-derived names, and compile_modeld overwrites its raw working PKL
-    # when an incomplete build is retried.
-    spinner.update("USB eGPU big model\nCompiling · 00:00 · keep ignition on")
+    # transient failures and subsequent boot attempts. Model versions use
+    # SHA-derived names, and compile_modeld overwrites its raw working PKL when
+    # an incomplete build is retried.
+    spinner.update("Local GPU big model\nCompiling · 00:00")
     write_big_model_status(model_cache_dir(), "compiling", started_at=compile_started_at,
                            detail=f"compile attempt {attempt}/{USBGPU_BUILD_ATTEMPTS}", **status_values)
     process = subprocess.Popen(["scons", "-j1", "--cache-populate", target], cwd=BASEDIR, env=env,
@@ -174,7 +161,7 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
       if now - last_heartbeat >= 1.0:
         elapsed = max(0, int(now - compile_started_at))
         elapsed_text = f"{elapsed // 60:02d}:{elapsed % 60:02d}"
-        spinner.update(f"USB eGPU big model\nCompiling · {elapsed_text} · keep ignition on")
+        spinner.update(f"Local GPU big model\nCompiling · {elapsed_text}")
         last_heartbeat = now
       if now - last_status_heartbeat >= 10.0:
         write_big_model_status(model_cache_dir(), "compiling", started_at=compile_started_at,
@@ -191,7 +178,7 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
 
     error_text = b"\n".join(output).decode('utf8', 'replace')
     if attempt < USBGPU_BUILD_ATTEMPTS and usbgpu_pcie_not_ready(error_text):
-      message = (f"USB eGPU PCIe link not ready; retrying in {USBGPU_BUILD_RETRY_INTERVAL:.0f}s "
+      message = (f"Local GPU compile failed; retrying in {USBGPU_BUILD_RETRY_INTERVAL:.0f}s "
                  f"({attempt}/{USBGPU_BUILD_ATTEMPTS})")
       print(message)
       spinner.update(message)
@@ -200,8 +187,8 @@ def build_usbgpu_model(spinner: Spinner) -> bool:
     break
 
   add_file_handler(cloudlog)
-  cloudlog.error("optional USB eGPU model build failed\n" + b"\n".join(all_output).decode('utf8', 'replace'))
-  spinner.update("USB eGPU model unavailable; using the internal model")
+  cloudlog.error("optional local-GPU big model build failed\n" + b"\n".join(all_output).decode('utf8', 'replace'))
+  spinner.update("Local GPU big model unavailable; using the internal model")
   write_big_model_status(model_cache_dir(), "error", detail="compile failed; using internal model", **status_values)
   return False
 

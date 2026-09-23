@@ -2,6 +2,7 @@
 import threading
 import os
 import platform
+import time
 from collections import namedtuple
 
 from msgq.visionipc import VisionIpcServer, VisionStreamType
@@ -39,11 +40,17 @@ class Camerad:
     self.vipc_server.start_listener()
 
   def _send_yuv(self, yuv, frame_id, pub_type, yuv_type):
-    eof = int(frame_id * 0.05 * 1e9)
-    self.vipc_server.send(yuv_type, yuv, frame_id, eof, eof)
-    dat = messaging.new_message(pub_type, valid=True)
+    # OpenCV does not expose the Tegra VI hardware timestamp here. Timestamp
+    # each dequeued frame in CLOCK_MONOTONIC, the same clock used by cereal.
+    # frame_id * period is only time since camerad start and breaks locationd.
+    eof = time.monotonic_ns()
+    sof = eof - 50_000_000  # estimated 20 Hz frame start
+    self.vipc_server.send(yuv_type, yuv, frame_id, sof, eof)
+    dat = messaging.new_message(pub_type, valid=True, logMonoTime=eof)
     msg = {
       "frameId": frame_id,
+      "timestampSof": sof,
+      "timestampEof": eof,
       "transform": [1.0, 0.0, 0.0,
                     0.0, 1.0, 0.0,
                     0.0, 0.0, 1.0]

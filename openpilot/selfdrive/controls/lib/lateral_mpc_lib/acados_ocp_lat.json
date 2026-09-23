@@ -224,8 +224,8 @@
         "zu_e": []
     },
     "cython_include_dirs": [
-        "/usr/local/venv/lib/python3.12/site-packages/numpy/_core/include",
-        "/usr/include/python3.12"
+        "/data/openpilot/.venv/lib/python3.12/site-packages/numpy/_core/include",
+        "/home/nvidia/.local/share/uv/python/cpython-3.12.14-linux-aarch64-gnu/include/python3.12"
     ],
     "dims": {
         "N": 32,

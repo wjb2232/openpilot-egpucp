@@ -22,6 +22,7 @@ from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, WARP_INPUTS, POLICY_INPUTS
+from openpilot.selfdrive.modeld.tensorrt_policy_runner import TensorRTPolicyRunner
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
 from openpilot.common.file_chunker import open_file_chunked
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
@@ -150,6 +151,15 @@ class ModelState:
     self.parser = Parser()
     self.frame_buf_params = {k: get_nv12_info(cam_w, cam_h) for k in ('img', 'big_img')}
     self.run_policy = jits['run_policy']
+    self.trt_policy = None
+    _trt_engine = os.getenv('MODEL_TRT_ENGINE')
+    if not _trt_engine and os.getenv('MODEL_TRT_DISABLE') != '1':
+      _default_trt_engine = '/data/openpilot/openpilot/selfdrive/modeld/models/big_driving_fp16.plan'
+      if os.path.isfile(_default_trt_engine):
+        _trt_engine = _default_trt_engine
+    if _trt_engine and self.usbgpu:
+      self.trt_policy = TensorRTPolicyRunner(_trt_engine, self.input_shapes, self.frame_skip)
+      cloudlog.warning(f"TensorRT big-model backend enabled: {_trt_engine}")
     self.warp = jits[(cam_w,cam_h)]
 
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
@@ -204,11 +214,17 @@ class ModelState:
     if prepare_only:
       return None
 
-    outs, = self.run_policy(
-      **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
-    )
-    model_output = outs.numpy()[0]
-    if self.usbgpu and not np.all(np.isfinite(model_output)):
+    if self.trt_policy is not None:
+      _warped_np = warped.numpy()
+      model_output = self.trt_policy.run(
+        _warped_np, self.npy['desire'], self.npy['traffic_convention'],
+        self.npy['action_t'], self.npy['prev_feat'])
+    else:
+      outs, = self.run_policy(
+        **{k: self.input_queues[k] for k in POLICY_INPUTS if k in self.input_queues}, warped=warped
+      )
+      model_output = outs.numpy()[0]
+    if (self.usbgpu or self.trt_policy is not None) and not np.all(np.isfinite(model_output)):
       raise RuntimeError("eGPU model output is not finite")
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
     self.npy['prev_feat'][:] = model_output[self.output_slices['hidden_state']]
@@ -463,9 +479,13 @@ def main(demo=False):
     run_count = run_count + 1
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
-    prepare_only = vipc_dropped_frames > 0
-    if prepare_only:
-      cloudlog.error(f"skipping model eval. Dropped {vipc_dropped_frames} frames")
+    # A slow local-GPU inference can miss one or more camera frames.  Do not
+    # suppress inference for every missed frame: at a sustained camera rate
+    # that makes modeld permanently publish no modelV2 at all.  The model
+    # input queue is updated with the newest frame and can safely run it.
+    prepare_only = False
+    if vipc_dropped_frames > 0:
+      cloudlog.warning(f"camera dropped {vipc_dropped_frames} frames; running latest frame")
 
     bufs = {name: buf_extra if 'big' in name else buf_main for name in model.vision_input_names}
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}

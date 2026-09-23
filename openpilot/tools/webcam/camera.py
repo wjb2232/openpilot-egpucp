@@ -1,11 +1,27 @@
-import av
+#!/usr/bin/env python3
+"""camera.py for Tegra twgmsl (UYVY-tagged, YUYV-layout) GMSL cameras.
+
+The tegra VI driver swaps the 4:2:2 byte order: requesting UYVY returns
+YUYV-layout data and vice versa, so OpenCV's built-in conversion always
+produces green/purple garbage. We bypass it: read raw frames with
+CAP_PROP_CONVERT_RGB=0, convert UYVY->NV12 ourselves (numpy), then resize the
+Y/UV planes separately to the target WxH.
+"""
+import os
+import numpy as np
 import cv2 as cv
+
+CAM_WIDTH = int(os.getenv("CAM_WIDTH", "1920"))
+CAM_HEIGHT = int(os.getenv("CAM_HEIGHT", "1080"))
+# Brightness gain for dark GMSL scenes (IMX390 default exposure is dim).
+BRIGHTNESS_GAIN = float(os.getenv("CAM_BRIGHTNESS", "2.0"))
+
 
 class Camera:
   def __init__(self, cam_type_state, stream_type, camera_id):
     try:
       camera_id = int(camera_id)
-    except ValueError: # allow strings, ex: /dev/video0
+    except ValueError:  # allow strings, ex: /dev/video0
       pass
     self.cam_type_state = cam_type_state
     self.stream_type = stream_type
@@ -14,18 +30,40 @@ class Camera:
     print(f"Opening {cam_type_state} at {camera_id}")
 
     self.cap = cv.VideoCapture(camera_id)
+    # Request the sensor's native mode; tegra VI exposes discrete sizes.
+    self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1920.0)
+    self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 1080.0)
+    # Raw capture: no OpenCV YUV->BGR conversion (it mis-decodes this driver).
+    self.cap.set(cv.CAP_PROP_CONVERT_RGB, 0)
 
-    self.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280.0)
-    self.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720.0)
-    self.cap.set(cv.CAP_PROP_FPS, 25.0)
+    self.src_w = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH))
+    self.src_h = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT))
 
-    self.W = self.cap.get(cv.CAP_PROP_FRAME_WIDTH)
-    self.H = self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)
+    self.W = CAM_WIDTH
+    self.H = CAM_HEIGHT
 
-  @classmethod
-  def bgr2nv12(self, bgr):
-    frame = av.VideoFrame.from_ndarray(bgr, format='bgr24')
-    return frame.reformat(format='nv12').to_ndarray()
+  @staticmethod
+  def uyvy_to_nv12(frame, dst_w, dst_h):
+    """frame: (h, w, 2) uint8 UYVY-layout raw. Returns NV12 bytes (dst_w x dst_h)."""
+    h, w = frame.shape[:2]
+    a = frame.reshape(-1)
+    # The Tegra twgmsl path labels the stream UYVY, but these IMX390
+    # pipelines deliver the two chroma lanes reversed (V0 Y0 U0 Y1).
+    # Treating byte 0 as U swaps yellow/cyan. Decode the physical order here
+    # and continue publishing standards-compliant NV12 (U,V interleaved).
+    y = a[1::2].reshape(h, w)
+    u = a[2::4].reshape(h, w // 2)
+    v = a[0::4].reshape(h, w // 2)
+    y = cv.resize(y, (dst_w, dst_h), interpolation=cv.INTER_LINEAR)
+    # Brightness gain (dark GMSL scene compensation)
+    y = np.clip(y.astype(np.float32) * BRIGHTNESS_GAIN, 0, 255).astype(np.uint8)
+    # UV plane: 4:2:2 has w/2 chroma per row; NV12 wants (dst_h/2) rows.
+    u = cv.resize(u, (dst_w // 2, dst_h // 2), interpolation=cv.INTER_AREA)
+    v = cv.resize(v, (dst_w // 2, dst_h // 2), interpolation=cv.INTER_AREA)
+    uv = np.empty((dst_h // 2, dst_w), dtype=np.uint8)
+    uv[:, 0::2] = u
+    uv[:, 1::2] = v
+    return np.concatenate([y.reshape(-1), uv.reshape(-1)]).tobytes()
 
   def read_frames(self):
     while True:
@@ -34,6 +72,6 @@ class Camera:
         break
       # Rotate the frame 180 degrees (flip both axes)
       frame = cv.flip(frame, -1)
-      yuv = Camera.bgr2nv12(frame)
-      yield yuv.data.tobytes()
+      nv12 = Camera.uyvy_to_nv12(frame, self.W, self.H)
+      yield nv12
     self.cap.release()

@@ -40,12 +40,29 @@ def select_vision_streams(available_streams: Collection[VisionStreamT], road_str
   return None, False
 
 
+def default_tg_backend() -> str:
+  """Pick the local inference backend, preferring the integrated GPU.
+
+  Local-GPU mode (Jetson AGX Orin): no external USB GPU is attached, so the
+  runtime device is the integrated GPU via tinygrad's CUDA backend.
+  """
+  try:
+    from tinygrad import Device
+    available = set(Device.get_available_devices())
+    for backend in ("CUDA", "QCOM", "CPU"):
+      if backend in available:
+        return backend
+  except Exception:
+    pass
+  return "QCOM"
+
+
 def _default_tg_input_devices(process_name: str, usbgpu: bool):
-  backend = os.getenv("DEV", "QCOM")
+  backend = os.getenv("DEV") or default_tg_backend()
   defaults = {
     'openpilot.selfdrive.modeld.modeld': {
       'default': {'WARP_DEV': backend, 'QUEUE_DEV': backend},
-      'usbgpu': {'WARP_DEV': backend, 'QUEUE_DEV': 'AMD'},
+      'usbgpu': {'WARP_DEV': backend, 'QUEUE_DEV': backend},
     },
     'openpilot.selfdrive.modeld.dmonitoringmodeld': {
       'default': {'DEV': backend},
@@ -119,9 +136,10 @@ def usb_device_present(usb_ids: Collection[tuple[int, int]], min_speed_mbps: int
 
 
 def usbgpu_present() -> bool:
-  # The custom bridge can remain enumerated over USB 2.0 while its SuperSpeed
-  # link is unavailable. That state cannot support PCIe model loading.
-  return usb_device_present(USBGPU_USB_IDS, USBGPU_MIN_SPEED_MBPS)
+  # Local-GPU mode (Jetson AGX Orin): there is no external USB GPU bridge.
+  # The inference target is the integrated GPU, so "present" reports whether
+  # the local CUDA backend is usable instead of scanning USB VID/PID pairs.
+  return default_tg_backend() == "CUDA"
 
 
 def wait_for_usbgpu_present(timeout: float, poll_interval: float = 0.1) -> bool:
@@ -177,12 +195,12 @@ def usbgpu_pcie_not_ready(error: BaseException | str) -> bool:
 
 
 def active_usbgpu_compiled_path() -> Path | None:
+  # Local-GPU mode intentionally ignores installed precompiled artifacts:
+  # those bundles are tied to the external USB AMD runtime. Only a locally
+  # compiled tinygrad pickle is valid on the Jetson CUDA backend.
   model = active_manifest()
   if model is None:
     return None
-  from openpilot.selfdrive.modeld.precompiled_model import installed
-  if (precompiled := installed(model)) is not None:
-    return precompiled
   path = modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
   return path if Path(get_manifest_path(path)).is_file() else None
 
@@ -190,9 +208,6 @@ def active_usbgpu_compiled_path() -> Path | None:
 def usbgpu_compile_pending() -> bool:
   model = active_manifest()
   if model is None:
-    return False
-  from openpilot.selfdrive.modeld.precompiled_model import installed
-  if installed(model) is not None:
     return False
   path = modeld_pkl_path(usbgpu=True, model_sha256=model.sha256)
   return not Path(get_manifest_path(path)).is_file()

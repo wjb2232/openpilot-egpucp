@@ -20,7 +20,7 @@ from openpilot.system.ui.widgets import Widget
 
 CLIP_MARGIN = 500
 MIN_DRAW_DISTANCE = 10.0
-MAX_DRAW_DISTANCE = 100.0
+MAX_DRAW_DISTANCE = 180.0
 CARROT_PARAM_REFRESH_INTERVAL = 1.0
 
 LaneChangeState = log.LaneChangeState

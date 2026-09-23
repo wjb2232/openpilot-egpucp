@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import sys
 import threading
 import time
@@ -36,7 +37,7 @@ except ModuleNotFoundError as error:
   raise
 
 
-HOST = "127.0.0.1"
+HOST = os.getenv("XIAOGE_VASM_HOST", "0.0.0.0")
 PORT = 8082
 CONFIG_PATH = Path(__file__).resolve().parent / "v_asm_config.json"
 MIN_THRESHOLD = 0.25
