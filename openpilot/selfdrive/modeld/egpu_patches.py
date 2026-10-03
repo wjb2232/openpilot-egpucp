@@ -9,9 +9,12 @@ worker subprocess and the ``check_usbgpu`` probe alike).
 
 What is patched, and why the patches are needed at all:
 
-* ``AM_POWER_LIMIT``: the chestnut (ASM24) board defaults to the GPU's SMU PPT limit
-  (~182W). 120W lowers the peak current and cuts USB/PCIe link flapping under load,
-  which showed up as ``bulk IN`` I/O errors mid-inference. tinygrad's amdev reads it.
+* ``AM_POWER_LIMIT`` / ``AM_POWER_LIMIT_PRECOMPILED``: the chestnut (ASM24) board defaults to
+  the GPU's SMU PPT limit (~182W), and tinygrad's amdev reads the env var. Uncapped is fine for
+  the chunked model (hours of clean running), but every precompiled generic-onnx artifact we
+  tested fails with ``bulk IN`` I/O errors within minutes at full clocks on two different C3s,
+  while the same artifact is stable for hours with a cap. ``apply_env_defaults`` therefore caps
+  only the precompiled worker.
 * ``tinygrad.helpers.fetch_fw``: tinygrad only looks for AMD firmware in
   ``/lib/firmware`` and otherwise downloads it from gitlab. That directory holds a
   different linux-firmware build than the one tinygrad pins, the download is blocked
@@ -38,6 +41,7 @@ Rules for anything added here:
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib.machinery
 import os
@@ -47,7 +51,18 @@ from collections.abc import Callable
 
 ENABLED = os.environ.get("OPENPILOT_EGPU_PATCH", "1") != "0"
 
-AM_POWER_LIMIT = "120"
+AM_POWER_LIMIT = ""
+# The precompiled worker gets a cap instead: every generic-onnx artifact we tested dies with
+# "bulk IN 0x81 failed: Input/Output Error" at full clocks on two different C3s, and the same
+# artifact is stable for hours once the power wall is applied. The chunked model runs through
+# this repo's own tinygrad, which retries those transfers, and has run uncapped for hours, so
+# the two deliveries get different limits rather than one global compromise.
+AM_POWER_LIMIT_PRECOMPILED = "120"
+# ``max``: keep the highest real DPM clock while the power cap applies. ``keep``: leave
+# AM_POWER_LIMIT's own clock branch alone (soft max = 0xffff, which the board answers with a
+# low clock state -- 46s to link failure at full clocks vs hours without). See
+# patch_am_clock_policy.
+AM_CLOCK_POLICY = "keep"
 
 # Firmware search order for fetch_fw: the read-only system dir AGNOS ships, then the
 # persistent dir the model server fills. The in-tree blobs (see firmware_bases()) are
@@ -131,11 +146,38 @@ def _decompress(raw: bytes) -> bytes | None:
     return None
 
 
+def _is_precompiled_worker() -> bool:
+  """True inside the subprocess that owns the AMD device for a precompiled artifact.
+
+  That worker is exec'd as ``<python> .../precompiled_worker.py <pkl> ...``, and it is the only
+  process that initialises the eGPU for a precompiled delivery: modeld itself only touches
+  tinygrad's AMD backend for the chunked model. Deciding here means a delivery switch needs no
+  restart, and that the chunked path keeps the repo's uncapped default.
+  """
+  return any("precompiled_worker.py" in str(arg) for arg in sys.argv[:2])
+
+
 def apply_env_defaults() -> bool:
-  """Set the values launch_env.sh used to export, for direct runs (the GPU probe)."""
+  """Set the values launch_env.sh used to export, for direct runs (the GPU probe).
+
+  Power limit is per delivery: the precompiled worker caps (AM_POWER_LIMIT_PRECOMPILED),
+  everything else (the chunked model in modeld) runs uncapped. Override either side with the
+  matching environment variable, e.g. AM_POWER_LIMIT_PRECOMPILED="" for a full-speed A/B.
+  """
   changed = False
-  if AM_POWER_LIMIT and os.environ.get("AM_POWER_LIMIT") is None:
+  if _is_precompiled_worker():
+    want = os.environ.get("AM_POWER_LIMIT_PRECOMPILED", AM_POWER_LIMIT_PRECOMPILED)
+    if want and os.environ.get("AM_POWER_LIMIT") != want:
+      os.environ["AM_POWER_LIMIT"] = want
+      changed = True
+    elif not want and "AM_POWER_LIMIT" in os.environ:
+      del os.environ["AM_POWER_LIMIT"]
+      changed = True
+  elif AM_POWER_LIMIT and os.environ.get("AM_POWER_LIMIT") is None:
     os.environ["AM_POWER_LIMIT"] = AM_POWER_LIMIT
+    changed = True
+  if AM_CLOCK_POLICY and os.environ.get("AM_CLOCK_POLICY") is None:
+    os.environ["AM_CLOCK_POLICY"] = AM_CLOCK_POLICY
     changed = True
   return changed
 
@@ -269,6 +311,40 @@ def patch_model_delivery(helpers) -> bool:
   return True
 
 
+def patch_am_clock_policy(module) -> bool:
+  """Let AM_POWER_LIMIT cap watts only, without also dropping the card into a low clock state.
+
+  When a power limit is set, tinygrad stops asking for the highest DPM clock and instead sends
+  SetSoftMaxByFreq with 0xffff, which is not a frequency: on the chestnut (ASM24) board the SMU
+  answers with a low clock (~1.1GHz, board draw ~30W) long before the 120W cap is reached. The
+  uncapped path reads the real DPM table and pins min/max to its top entry, so map the capped
+  branch onto that same call and let the power wall be the only limiter.
+  """
+  if getattr(module, "_fork_clock_policy", False):
+    return False
+  patched = False
+  for name in dir(module):
+    owner = getattr(module, name, None)
+    if not isinstance(owner, type):
+      continue
+    original = getattr(owner, "set_clocks", None)
+    if original is None or getattr(original, "_fork_clock_policy", False):
+      continue
+
+    @functools.wraps(original)
+    def set_clocks(self, level, _fn=original):
+      if level is None and os.environ.get("AM_CLOCK_POLICY", "max") == "max":
+        level = -1  # highest real DPM entry, like the uncapped path
+      return _fn(self, level)
+
+    set_clocks._fork_clock_policy = True
+    owner.set_clocks = set_clocks
+    patched = True
+  if patched:
+    module._fork_clock_policy = True
+  return patched
+
+
 def patch_after_import(module_name: str, callback: Callable[[object], bool]) -> bool:
   """Call callback(module) as soon as module_name finishes importing.
 
@@ -321,6 +397,11 @@ def apply() -> list[str]:
   try:
     if apply_env_defaults():
       applied.append("env:AM_POWER_LIMIT")
+  except Exception:
+    pass
+  try:
+    if patch_after_import("tinygrad.runtime.support.am.ip", patch_am_clock_policy):
+      applied.append("hook:tinygrad.runtime.support.am.ip")
   except Exception:
     pass
   try:
