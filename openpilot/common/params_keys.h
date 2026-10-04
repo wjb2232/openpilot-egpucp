@@ -17,10 +17,13 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AthenadRecentlyViewedRoutes", {PERSISTENT, STRING}},
     {"BootCount", {PERSISTENT, INT}},
     {"CalibrationParams", {PERSISTENT, BYTES}},
+    {"EnableSpeedTF", {PERSISTENT, INT, "0"}},
+    {"ClusterHudLiveFps", {PERSISTENT, INT, "1"}},
+    {"ClusterHudCoreMode", {PERSISTENT, INT, "0"}},
+    {"WideFocalAuto", {PERSISTENT, BYTES}},
+    {"RoadFocalAuto", {PERSISTENT, BYTES}},
     {"CamCalibWide", {PERSISTENT, BYTES}},
     {"CamCalibRoad", {PERSISTENT, BYTES}},
-    {"RoadFocalAuto", {PERSISTENT, BYTES}},
-    {"WideFocalAuto", {PERSISTENT, BYTES}},
     {"CameraDebugExpGain", {CLEAR_ON_MANAGER_START, STRING}},
     {"CameraDebugExpTime", {CLEAR_ON_MANAGER_START, STRING}},
     {"CarBatteryCapacity", {PERSISTENT, INT}},
@@ -106,6 +109,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Offroad_UpdateFailed", {CLEAR_ON_MANAGER_START, JSON}},
     {"Offroad_DriverMonitoringUncertain", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
     {"OnroadCycleRequested", {CLEAR_ON_MANAGER_START, BOOL}},
+    {"ImpactDashcamNotice", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
+    {"ImpactDashcamFeedback", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, JSON}},
+    {"ImpactDashcamReboot", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
     {"OpenpilotEnabledToggle", {PERSISTENT, BOOL, "1"}},
     {"PandaHeartbeatLost", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"PandaSomResetTriggered", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
@@ -199,13 +205,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ClusterHudOrientation", {PERSISTENT, INT, "0"}},
     {"ClusterHudMirror", {PERSISTENT, INT, "0"}},
     {"ClusterHudEncoder", {PERSISTENT, INT, "0"}},
-    {"ClusterHudCoreMode", {PERSISTENT, INT, "0"}},
-    {"ClusterHudPriority", {PERSISTENT, INT, "10"}},
+    {"ClusterHudPriority", {PERSISTENT, INT, "10"}},  // Retired: ignored; HUD always uses SCHED_OTHER.
     {"ClusterHudTheme", {PERSISTENT, INT, "0"}},
     {"ClusterNaviMapTheme", {PERSISTENT, INT, "1"}},
     {"ClusterNaviMapType", {PERSISTENT, INT, "0"}},
     {"ClusterNaviMapFps", {PERSISTENT, INT, "1"}},
-    {"ClusterHudLiveFps", {PERSISTENT, INT, "1"}},
     {"ClusterHudScreenMode", {PERSISTENT, INT, "0"}},
     {"ClusterHudPanelLayout", {PERSISTENT, INT, "0"}},
     {"ClusterHudCameraViewMode", {PERSISTENT, INT, "0"}},
@@ -222,6 +226,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SoftHoldOnCancel", {PERSISTENT, BOOL, "0"}},
     {"CruiseEcoControl", {PERSISTENT, INT, "2"}},
     {"CarrotCruiseDecel", {PERSISTENT, INT, "-1"}},
+    {"CruiseCoastingPercent", {PERSISTENT, INT, "0"}},
     {"CarrotCruiseAtcDecel", {PERSISTENT, INT, "-1"}},
 
     {"AutoGasTokSpeed", {PERSISTENT, INT, "0"}},
@@ -240,6 +245,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AutoTurnMapChange", {PERSISTENT, INT, "0"}},
 
     {"AutoNaviSpeedCtrlEnd", {PERSISTENT, INT, "7"}},
+    {"AutoNaviRearCameraHoldDistance", {PERSISTENT, INT, "100"}},
     {"AutoNaviSpeedCtrlMode", {PERSISTENT, INT, "2"}},
     {"VehicleNaviCanControl", {PERSISTENT, INT, "0"}},
     {"VehicleNaviSchoolZoneControl", {PERSISTENT, BOOL, "0"}},
@@ -255,11 +261,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"TurnSpeedControlMode", {PERSISTENT, INT, "1"}},
 
     {"MapTurnSpeedFactor", {PERSISTENT, INT, "90"}},
-    {"StoppingAccel", {PERSISTENT, INT, "-50"}},
     {"AutoSpeedUptoRoadSpeedLimit", {PERSISTENT, INT, "0"}},
     {"AutoRoadSpeedAdjust", {PERSISTENT, INT, "50"}},
 
     {"StopDistanceCarrot", {PERSISTENT, INT, "550"}},
+    {"StoppingAccel", {PERSISTENT, INT, "-50"}},
     {"CruiseButtonMode", {PERSISTENT, INT, "0"}},
     {"CancelButtonMode", {PERSISTENT, INT, "0"}},
     {"LfaButtonMode", {PERSISTENT, INT, "0"}},
@@ -283,6 +289,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     {"SteerActuatorDelay", {PERSISTENT, INT, "0"}},
     {"LatSmoothSec", {PERSISTENT, INT, "13"}},
+    {"SteerHandoverMode", {PERSISTENT, INT, "0"}},
     {"LatSuspendAngleDeg", {PERSISTENT, INT, "300"}},
     {"CruiseOnDist", {PERSISTENT, INT, "400"}},
 
@@ -301,12 +308,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"VEgoStopping", {PERSISTENT, INT, "50"}},
 
     {"EnableRadarTracks", {PERSISTENT, INT, "0"}},
+    {"RadarTrackFlip", {PERSISTENT, BOOL, "0"}},
     {"RadarLatFactor", {PERSISTENT, INT, "0"}},
     {"EnableCornerRadar", {PERSISTENT, INT, "0"}},
     {"EnableEscc", {PERSISTENT, INT, "0"}},
 
     {"EnableRadarTracksResult", {PERSISTENT | CLEAR_ON_MANAGER_START, INT}},
     {"CanParserResult", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, STRING}},
+    {"HyundaiCameraSccHint", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
 
     {"HotspotOnBoot", {PERSISTENT, INT, "0"}},
     {"SoftwareMenu", {PERSISTENT, INT, "1"}},
@@ -321,15 +330,20 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SoundVolumeAdjustEngage", {PERSISTENT, INT, "10"}},
     {"SoundLanguageSetting", {PERSISTENT, STRING, "auto"}},
 
+    {"CruiseGapLevels", {PERSISTENT, INT, "4"}},
     {"TFollowGap1", {PERSISTENT, INT, "110"}},
     {"TFollowGap2", {PERSISTENT, INT, "120"}},
     {"TFollowGap3", {PERSISTENT, INT, "140"}},
     {"TFollowGap4", {PERSISTENT, INT, "160"}},
 
     {"LeadAccelResponse", {PERSISTENT, INT, "0"}},
+    {"LeadAccelResponseTF1", {PERSISTENT, INT, "-1"}},
+    {"LeadAccelResponseTF2", {PERSISTENT, INT, "-1"}},
+    {"LeadAccelResponseTF3", {PERSISTENT, INT, "-1"}},
+    {"LeadAccelResponseTF4", {PERSISTENT, INT, "-1"}},
     {"DynamicTFollowLC", {PERSISTENT, INT, "100"}},
     {"TFollowDecelBoost", {PERSISTENT, INT, "0"}},
-    {"EnableSpeedTF", {PERSISTENT, INT, "0"}},
+    {"SpeedTFFactor", {PERSISTENT, INT, "10"}},
     {"AChangeCostStarting", {PERSISTENT, INT, "10"}},
     {"TrafficStopDistanceAdjust", {PERSISTENT, INT, "-150"}},
 
@@ -371,7 +385,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SpeedFromPCM", {PERSISTENT, INT, "2"}},
     {"MaxTimeOffroadMin", {PERSISTENT, INT, "60"}},
 
-    {"DisableDM", {PERSISTENT, INT, "0"}},
+    {"DisableDM", {PERSISTENT, INT, "0"}},  // retired; read only for one-time streaming migration
+    {"DriverMonitoringEnabled", {PERSISTENT, BOOL, "1"}},
+    {"DriverMonitoringSessionDisabled", {CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON, BOOL}},
+    {"DriverMonitoringMode", {PERSISTENT, INT, "0"}},
+    {"CarrotVisionEnabled", {PERSISTENT, BOOL, "0"}},
     {"MuteDoor", {PERSISTENT, INT, "0"}},
     {"MuteSeatbelt", {PERSISTENT, INT, "0"}},
 
