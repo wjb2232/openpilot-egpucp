@@ -22,6 +22,7 @@ import os
 import platform
 import time
 import json
+import multiprocessing as mp
 
 from msgq.visionipc import VisionIpcServer, VisionStreamType
 from openpilot.cereal import messaging
@@ -38,6 +39,10 @@ OPEN_TIMEOUT = 6.0
 FRAME_HZ = 20
 STICKY_SECONDS = 5.0  # 角色切源防抖:高优先级源恢复后至少等这么久才切回
 ROLE_STATUS_FILE = "/tmp/role_sources.json"  # 当前源状态(供 intrinsic_calibd 防标定污染)
+# 坏源隔离(quarantine):连续失败阈值与退避间隔
+CONSEC_FAIL_LIMIT = 3      # 连续失败次数达到后进入 quarantine
+QUARANTINE_RETRY = 30.0    # quarantine 期间重试探测间隔(秒),不占 VI 资源
+
 ROLE_STATUS_LOCK = threading.Lock()  # 状态文件写锁(多角色线程)
 
 
@@ -48,30 +53,57 @@ class Source:
     self.name = name
     self.cam_device = cam_device
     self.lock = threading.Lock()
+    self.consec_fail = 0       # 连续失败计数
+    self.quarantined = False   # 隔离中(停止主动重试,只轻量探测)
+    self.last_probe = 0.0      # 上次 quarantine 探测时间
     self.latest = None          # (frame_id, nv12, eof_ns)
     self.alive = False
     self._prev_alive = False
     self.cam = None
 
   # ---- 有超时的打开 ----
-  def _open_once(self):
-    result = {}
-
-    def worker():
+  @staticmethod
+  def _probe_in_child(cam_device, q):
+    """子进程探测:设备能否打开、格式是否有效。返回 (ok|bad|err, w, h)。"""
+    try:
+      cam = Camera("probe", None, cam_device)
+      if cam.src_w > 0 and cam.src_h > 0:
+        q.put(("ok", cam.src_w, cam.src_h))
+      else:
+        q.put(("bad", 0, 0))
+      cam.cap.release()
+    except Exception as e:  # noqa: BLE001
       try:
-        result["cam"] = Camera(self.name, None, self.cam_device)
-      except Exception as e:  # noqa: BLE001
-        result["err"] = e
+        q.put(("err", str(e), 0))
+      except Exception:
+        pass
 
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-    t.join(OPEN_TIMEOUT)
-    if t.is_alive():
-      return None
-    cam = result.get("cam")
-    if cam is None or cam.src_w <= 0 or cam.src_h <= 0:
-      return None
-    return cam
+  def _open_once(self):
+    """子进程探测(可强杀,零泄漏) + 父进程真正打开(健康设备秒开)。"""
+    ctx = mp.get_context("fork")
+    q = ctx.Queue()
+    p = ctx.Process(target=self._probe_in_child, args=(self.cam_device, q))
+    p.start()
+    p.join(OPEN_TIMEOUT)
+    if p.is_alive():
+      p.terminate()
+      p.join(1.0)
+      print(f"[webcamerad] {self.name}: probe timeout, killed (fd recycled)", flush=True)
+      return None, "probe timeout"
+    try:
+      payload = q.get_nowait()
+    except Exception:
+      payload = ("err", "no probe result", 0)
+    if payload[0] != "ok":
+      return None, f"probe {payload[0]}: {payload[1]}"
+    # 探测通过:父进程打开。健康设备刚被探测过,此处应秒开。
+    try:
+      cam = Camera(self.name, None, self.cam_device)
+      if cam.src_w <= 0 or cam.src_h <= 0:
+        return None, "no valid format after probe"
+      return cam, None
+    except Exception as e:  # noqa: BLE001
+      return None, f"reopen failed: {e}" 
 
   def _set_alive(self, alive: bool):
     with self.lock:
@@ -84,26 +116,56 @@ class Source:
   def run(self):
     cam = None
     while True:
+      # quarantine:连续失败太多,只轻量探测,不持续冲击 VI 总线
+      if self.quarantined:
+        now = time.monotonic()
+        if now - self.last_probe < QUARANTINE_RETRY:
+          time.sleep(1.0)
+          continue
+        self.last_probe = now
+        print(f"[webcamerad] {self.name}: probing after quarantine...", flush=True)
+      else:
+        # 非 quarantine:失败后至少等 RECONNECT_DELAY,避免忙循环
+        if cam is None and self.consec_fail > 0:
+          time.sleep(RECONNECT_DELAY)
+
       if cam is None:
-        cam = self._open_once()
+        cam, err = self._open_once()
         if cam is None:
           self._set_alive(False)
-          time.sleep(RECONNECT_DELAY)
+          self.consec_fail += 1
+          if err:
+            print(f"[webcamerad] {self.name}: {err}", flush=True)
+          if self.consec_fail >= CONSEC_FAIL_LIMIT and not self.quarantined:
+            self.quarantined = True
+            self.last_probe = time.monotonic()
+            print(f"[webcamerad] {self.name}: {self.consec_fail} consecutive failures, "
+                  f"QUARANTINED (retry every {QUARANTINE_RETRY:.0f}s)", flush=True)
           continue
         print(f"[webcamerad] {self.name}: opened {self.cam_device} (uvc={cam.is_uvc})", flush=True)
+        if self.quarantined:
+          self.quarantined = False
+          self.consec_fail = 0
+          print(f"[webcamerad] {self.name}: recovered from quarantine", flush=True)
         self.cam = cam
       try:
+        frames_ok = 0
         for yuv in cam.read_frames():
           self._set_alive(True)
+          self.consec_fail = 0
+          frames_ok += 1
           eof = time.monotonic_ns()
           with self.lock:
             self.latest = (cam.cur_frame_id, yuv, eof)
           cam.cur_frame_id += 1
+        if frames_ok == 0:
+          self.consec_fail += 1
       except Exception as e:  # noqa: BLE001
         print(f"[webcamerad] {self.name}: read error ({e}), reconnecting", flush=True)
+        self.consec_fail += 1
       self._set_alive(False)
-      print(f"[webcamerad] {self.name}: stream lost, reconnecting in {RECONNECT_DELAY}s", flush=True)
-      time.sleep(RECONNECT_DELAY)
+      print(f"[webcamerad] {self.name}: stream lost ({self.consec_fail} consec), "
+            f"reconnecting in {RECONNECT_DELAY}s", flush=True)
       # 不使用 cam.reopen():cv.VideoCapture 无超时,设备拔出/卡住时会无限阻塞
       # 挂死本线程,导致该源永远不恢复。统一回 _open_once(带 OPEN_TIMEOUT)。
       cam = None
