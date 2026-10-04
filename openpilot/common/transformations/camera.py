@@ -62,9 +62,12 @@ _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(81
 # alignment. Replace with measured intrinsics/distortion during fine tuning.
 _j501_imx390_road = CameraConfig(1344, 760, 2508.0)
 _j501_imx390_fisheye = CameraConfig(1344, 760, 405.2)
+# USB IMX678 90°(driver 路): rectilinear, fx = (1344/2)/tan(90deg/2) = 672.0 px
+# 供 dmonitoring / lane 推理与顶替场景参考;精确值需棋盘格标定。
+_j501_usb90_config = CameraConfig(1344, 760, 672.0)
 _j501_imx390_config = DeviceCameraConfig(
   _j501_imx390_road,
-  _j501_imx390_fisheye,
+  _j501_usb90_config,
   _j501_imx390_fisheye,
 )
 

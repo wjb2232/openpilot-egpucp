@@ -30,7 +30,8 @@ fi
 # UI: 1920x1200 monitor -> big-UI canvas (2160x1080) scaled to fit (0.889)
 export BIG="1"
 export SCALE="0.889"
-export DISPLAY=":0"
+# UI 显示到 Xvfb :99(seeed 无屏桌面,开机自启;sunshine 也抓这个屏)
+export DISPLAY=":99"
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
 # platform, so block it and use the Python webcamerad instead; fake panda
@@ -42,9 +43,17 @@ if [ "$(uname -m)" = "aarch64" ] && [ ! -e /TICI ]; then
   export PASSIVE="0"
   export BLOCK="${BLOCK:+${BLOCK},}camerad,loggerd,encoderd,dmonitoringmodeld,dmonitoringd,micd,logmessaged,manage_athenad"
   export USE_WEBCAM="1"
-  export ROAD_CAM="0"
-  export WIDE_CAM="1"
+  # 摄像头节点号由下方 resolve_cams.sh 按设备名动态解析,勿在此硬编码
   export CAM_WIDTH="1344"
   export CAM_HEIGHT="760"
   export CAM_BRIGHTNESS="1.0"
 fi
+
+# v4l2 节点号会随枚举顺序漂移,启动时按设备名动态解析(ROAD=30°/WIDE=196°/DRIVER=USB)
+if [ -f "$(dirname "${BASH_SOURCE[0]}")/scripts/resolve_cams.sh" ]; then
+  eval "$(bash "$(dirname "${BASH_SOURCE[0]}")/scripts/resolve_cams.sh" 2>/dev/null)"
+fi
+# 兜底:解析未设置时置空,webcamerad 会日志提示并跳过,不残留旧值错连
+export ROAD_CAM="${ROAD_CAM:-}"
+export WIDE_CAM="${WIDE_CAM:-}"
+export DRIVER_CAM="${DRIVER_CAM:-}" 

@@ -17,6 +17,8 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+from dataclasses import replace
+from openpilot.common.transformations.camera import CameraConfig
 from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, smooth_value, get_curvature_from_plan
@@ -31,6 +33,7 @@ from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, 
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
+_calib_read_cache: dict = {}  # CamCalib 参数读取缓存(60s 刷新)
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
 
@@ -458,9 +461,62 @@ def main(demo=False):
         device_from_calib_euler[2] -= np.radians(applied_yaw_trim_deg)
 
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
-      model_transform_main = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if main_wide_camera else dc.fcam.intrinsics, False).astype(np.float32)
+      # 每镜头独立内参+外参自适应(intrinsic_calibd v4 行驶中联合自标定):
+      #   f            -> 覆盖 fcam/ecam 焦距
+      #   pitch_offset -> 该流 euler 加独立俯仰偏置(外参独立)
+      fcam_off = 0.0
+      ecam_off = 0.0
+      import json as _json
+      # 参数读取 60s 缓存:intrinsic_calibd 每 10s 写参数,模型分钟级跟进(渐进进化)。
+      _now = time.monotonic()
+      if _now - _calib_read_cache.get("t", -1e9) > 60.0:
+        _calib_read_cache.clear()
+        # 新参数优先;旧 RoadFocalAuto/WideFocalAuto 兼容(无 pitch_offset 视为 0)
+        # 每镜头独立 try:一个镜头参数损坏不连累另一个。
+        for pname, attr, off_var in (("CamCalibRoad", "fcam", "fcam_off"), ("CamCalibWide", "ecam", "ecam_off")):
+          try:
+            raw = params.get(pname)
+            if not raw:
+              raw = params.get("RoadFocalAuto" if attr == "fcam" else "WideFocalAuto")
+            if not raw:
+              continue
+            info = _json.loads(raw.decode(errors="ignore"))
+            # 只采用已收敛的标定(未收敛值可能是早期噪声)
+            if not info.get("converged", False):
+              continue
+            f_learned = float(info.get("f", 0.0))
+            off = float(info.get("pitch_offset", 0.0))
+            # 病态拒绝:offset 物理上限 0.15 rad
+            if abs(off) > 0.15:
+              continue
+            cam = getattr(dc, attr)
+            if 300.0 < f_learned < 4000.0:
+              dc = replace(dc, **{attr: CameraConfig(cam.width, cam.height, f_learned)})
+            if off_var == "fcam_off":
+              fcam_off = off
+            else:
+              ecam_off = off
+            cloudlog.warning(f"per-cam adaptive: {attr} f={f_learned:.1f} "
+                             f"pitch_off={info.get('pitch_offset', 0.0)} (samples={info.get('samples')})")
+          except Exception as e:
+            cloudlog.warning(f"per-cam adaptive: {attr} no override ({e})")
+        _calib_read_cache["t"] = _now
+      # 主路:用 wide 流当 main 时按 wide(ecam)外参,否则按 road(fcam)
+      if main_wide_camera:
+        main_euler = device_from_calib_euler + np.array([0.0, ecam_off, 0.0])
+        main_intrinsics = dc.ecam.intrinsics
+      else:
+        main_euler = device_from_calib_euler + np.array([0.0, fcam_off, 0.0])
+        main_intrinsics = dc.fcam.intrinsics
+      model_transform_main = get_warp_matrix(main_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
-      model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if has_wide_camera else dc.fcam.intrinsics, True).astype(np.float32)
+      if has_wide_camera:
+        extra_euler = device_from_calib_euler + np.array([0.0, ecam_off, 0.0])
+        extra_intrinsics = dc.ecam.intrinsics
+      else:
+        extra_euler = device_from_calib_euler
+        extra_intrinsics = dc.fcam.intrinsics
+      model_transform_extra = get_warp_matrix(extra_euler, extra_intrinsics, True).astype(np.float32)
       live_calib_seen = True
 
     traffic_convention = np.zeros(2)
