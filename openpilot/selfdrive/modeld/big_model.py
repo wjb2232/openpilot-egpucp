@@ -74,8 +74,17 @@ class BigModelManifest:
       raise ValueError("invalid model URL")
 
     resolved_url = urljoin(manifest_url, model_url)
-    if urlparse(resolved_url).scheme != "https":
-      raise ValueError("model URL must use HTTPS")
+    parsed_url = urlparse(resolved_url)
+    # The configured eGPU mirror currently serves large model files over plain
+    # HTTP on its dedicated port. Keep HTTPS mandatory for arbitrary URLs, but
+    # allow HTTP only for that explicitly configured model mirror.
+    if parsed_url.scheme == "http":
+      from openpilot.selfdrive.modeld.model_source import MODEL_BASE
+      trusted_netloc = urlparse(MODEL_BASE).netloc
+      if parsed_url.netloc != trusted_netloc:
+        raise ValueError("HTTP model URL is not the configured eGPU mirror")
+    elif parsed_url.scheme != "https":
+      raise ValueError("model URL must use HTTPS or the configured eGPU mirror")
     return cls(model_id=model_id, filename=filename, size=size, sha256=sha256, url=resolved_url)
 
   @property
@@ -141,6 +150,10 @@ def fetch_manifest(manifest_url: str = DEFAULT_MANIFEST_URL, timeout: float = 15
   # environment/CLI override path below so a different manifest can still be
   # tested explicitly without changing this branch.
   if manifest_url == DEFAULT_MANIFEST_URL:
+    from openpilot.selfdrive.modeld import model_catalog
+    selected = model_catalog.selected_manifest()
+    if selected is not None:
+      return selected
     return BigModelManifest.from_dict(TGC_MODEL, manifest_url)
 
   req = Request(manifest_url, headers={"Accept": "application/json", "User-Agent": "carrot-modeld/1"})

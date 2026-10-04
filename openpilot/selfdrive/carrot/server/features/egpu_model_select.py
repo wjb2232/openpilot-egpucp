@@ -135,12 +135,12 @@ def build_models_payload() -> dict[str, Any]:
     # catalog, so its presence alone must not count as "downloaded".
     models.append(_entry(entry.get('label'), entry.get('model_id'), sha, entry.get('size'),
                          entry.get('url'), downloaded=bool(known.get('downloaded')),
-                         selected=sha == selected, is_active=sha == running))
+                         selected=sha == selected, is_active=sha == active))
 
   # Anything on disk that the server no longer lists still has to be switchable.
   for sha, known in by_sha.items():
     models.append(_entry(None, known.get('model_id'), sha, known.get('size'), known.get('url'),
-                         downloaded=True, selected=sha == selected, is_active=sha == running))
+                         downloaded=True, selected=sha == selected, is_active=sha == active))
 
   return {
     'ok': True,
