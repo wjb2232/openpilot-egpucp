@@ -150,7 +150,11 @@ class Source:
         self.cam = cam
       try:
         frames_ok = 0
+        src_rk = Ratekeeper(FRAME_HZ, None)
         for yuv in cam.read_frames():
+          # 源层限速:GMSL 相机 30fps,压到 20fps 且帧号连续,
+          # 否则 Role 每 50ms 取最新帧会跳号,modeld 计为丢帧。
+          src_rk.keep_time()
           self._set_alive(True)
           self.consec_fail = 0
           frames_ok += 1
@@ -236,7 +240,8 @@ class Role:
       pass
 
   def run(self):
-    rk = Ratekeeper(FRAME_HZ, None)
+    # 不再使用 Ratekeeper:Source 已按 FRAME_HZ 限速且帧号连续,
+    # Role 直接跟随 Source 节奏发布,避免双重限速相位漂移导致跳号。
     last_status = 0.0
     while True:
       # 状态文件降频 1Hz(60 次/秒 JSON 写是无谓 I/O;calibd 读它做防污染判断,1Hz 足够)
@@ -265,7 +270,9 @@ class Role:
         }
         setattr(dat, self.cam_type_state, msg)
         self.pm.send(self.cam_type_state, dat)
-      rk.keep_time()
+      else:
+        # 无新帧时小睡,避免忙循环
+        time.sleep(0.002)
 
 
 class Camerad:
