@@ -36,7 +36,7 @@ EMIT_INTERVAL = 10.0
 SAMPLE_EVERY_N = 3
 MIN_LINES = 6
 MIN_LINE_LEN = 60
-MIN_PITCH = 0.005
+MIN_PITCH = 0.001   # 相机装平+平路时 pitch 很小,过低会永不采样
 MIN_SAMPLES = 30
 CONVERGE_STD = 60.0
 PITCH_SPAN_MIN = 0.015   # rad;pitch 样本跨度低于此值则不可辨识 offset
@@ -170,6 +170,8 @@ class StreamCalib:
         f = float(np.median(y) / np.median(p)) if abs(np.median(p)) > 1e-6 else 0.0
       offset = 0.0
       fitted = None
+      # 退化分支(span 不足):offset 不可辨识时 f 也受污染(y/p 误差≈off/pitch),
+      # 必须不写入。等 pitch 跨度积累后走联合 LSQ 才能真正收敛。
       conv_ok = False
     else:
       # 离群过滤:先粗拟合(MAD 阈值剔除大残差样本),再用内点精拟合。
@@ -207,7 +209,14 @@ class StreamCalib:
   def emit(self):
     info = self.estimate()
     # 绝不写入未收敛值:坏标定比无标定更危险(modeld 会采用它)
-    if info is None or not info["converged"]:
+    if info is None:
+      print(f"[intrinsic_calibd][{self.label}] no-estimate "
+            f"(samples={self.total_seen}, best={self.best is not None})", flush=True)
+      return
+    if not info["converged"]:
+      print(f"[intrinsic_calibd][{self.label}] not-converged "
+            f"(f={info['f']:.0f} span={info['span']:.4f} std={info['std']:.1f} "
+            f"samples={info['samples']})", flush=True)
       return
     # 冻结 best:收敛后滑窗移动可能让 std 波动变大,仅当 std 更小才更新(只进不退)
     if self.best is not None and info["std"] >= self.best["std"]:
