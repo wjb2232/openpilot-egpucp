@@ -31,7 +31,7 @@ fi
 export BIG="1"
 export SCALE="0.889"
 # UI 显示到 Xvfb :99(seeed 无屏桌面,开机自启;sunshine 也抓这个屏)
-export DISPLAY=":99"
+export DISPLAY=":0"
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
 # platform, so block it and use the Python webcamerad instead; fake panda
