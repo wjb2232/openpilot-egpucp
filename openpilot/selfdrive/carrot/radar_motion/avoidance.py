@@ -131,6 +131,9 @@ class ObstacleAvoidance:
     def side_clear(lead) -> bool:
       if lead is None:
         return True
+      # status=False 的无效雷达点(dRel=0)视为空旷,与 DesireHelper 一致
+      if not getattr(lead, "status", True):
+        return True
       return float(lead.dRel) > 40.0 or abs(float(lead.yRel)) > 5.0
 
     left_clear = side_clear(leads_left)
@@ -161,6 +164,9 @@ class ObstacleAvoidance:
 
     def side_clear(lead) -> bool:
       if lead is None:
+        return True
+      # status=False 的无效雷达点视为空旷(与 DesireHelper 判据一致)
+      if not getattr(lead, "status", True):
         return True
       d = float(lead.dRel)
       y = abs(float(lead.yRel))
