@@ -1,19 +1,9 @@
 #!/usr/bin/env python3
-"""avoidance.py —— 障碍感知与避险(自行设计避障绕行 阶段1)。
+"""avoidance.py —— 障碍感知与避险(避障绕行 阶段1+2)。
 
-检测本车道前方的静止/极慢障碍物(基于 radarState + 模型路径)
-并推算一个安全的限速建议,注入 carrot_serv 的 speed_n_sources
-(经 desiredSpeed 通道实现车减速,不改变转向)。
-
-安全设计:
-- 只在本车道(dPath 判定)且距离较近时才触发
-- 输出是"限速",不是急刹(最终制动由 MPC 平滑执行)
-- 连续确认 N 帧才生效(防雷达抖动误触发)
-- 离开危险区立即恢复(无迟滞锁存)
-- 参数全部可调、可通过 params 关闭
-
-输入: radarState.leadOne(最近前车)/carState(本车道路径 dPath)
-输出: avoidance_speed_kph(建议限速,None=不触发)
+阶段1:检测本车道静止/极慢障碍,输出限速(纵向减速避险)。
+阶段2:检测障碍 + 相邻车道空隙,输出车道内横向偏移(贴边绕过)。
+安全:仅 12m 内触发限速、偏移 ≤0.4m 不跨线、两侧都有车不横移。
 """
 from __future__ import annotations
 
@@ -21,18 +11,15 @@ import math
 from dataclasses import dataclass, field
 
 
-# 触发条件阈值(可经 params 覆盖)
-MIN_TRIGGER_SPEED_KPH = 5.0      # 本车速度低于此不触发(接近停车排队)
-MAX_TRIGGER_DREL_M = 40.0        # 障碍物最近距离(米)
-MAX_TRIGGER_DPATH_M = 3.5        # 障碍物偏离路径距离(米),>此视为相邻车道
-STOPPED_VREL_KPH = -3.0          # 相对速度低于此视为"静止/极慢障碍"
-CONFIRM_FRAMES = 3               # 连续确认帧数
-RELEASE_FRAMES = 5               # 连续消失帧数后才恢复
-TARGET_GAP_M = 12.0              # 期望保持的车间距(米)
-MAX_AVOID_SPEED_KPH = 80.0       # 避障限速上限
-MIN_AVOID_SPEED_KPH = 0.0        # 避障限速下限
-
-# 安全减速度(m/s^2):限速按"到障碍距离"线性平滑
+MIN_TRIGGER_SPEED_KPH = 5.0
+MAX_TRIGGER_DREL_M = 40.0
+MAX_TRIGGER_DPATH_M = 3.5
+STOPPED_VREL_KPH = -3.0
+CONFIRM_FRAMES = 3
+RELEASE_FRAMES = 5
+TARGET_GAP_M = 12.0
+MAX_AVOID_SPEED_KPH = 80.0
+MIN_AVOID_SPEED_KPH = 0.0
 SAFE_DECEL_MPS2 = 1.5
 
 
@@ -91,8 +78,6 @@ class ObstacleAvoidance:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "moving-lead")
 
     # 计算建议限速:12m(TARGET_GAP)内线性递减
-    # d_rel >= TARGET_GAP:交给 MPC 正常纵向跟车,不重复干预
-    # d_rel 0~12m:限速 = v_ego * d_rel / TARGET_GAP(越近越慢,0m→0)
     if d_rel >= TARGET_GAP_M:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "matching-lead")
     speed_kph = v_ego * max(0.0, d_rel / TARGET_GAP_M)
@@ -122,7 +107,6 @@ class ObstacleAvoidance:
       return self._last_estimate
     return AvoidanceEstimate(False, 0.0, est.d_rel_m, est.d_path_m, est.v_rel_kph, est.reason)
 
-  # 对外:建议的限速(kph),不触发返回 None
   def suggested_speed(self) -> float | None:
     if self._active and self._last_estimate is not None:
       return self._last_estimate.speed_kph
@@ -130,3 +114,26 @@ class ObstacleAvoidance:
 
   def is_active(self) -> bool:
     return self._active
+
+  # ---- 阶段2:横向避让 ----
+  def lateral_offset(self, leads_left: object | None, leads_right: object | None,
+                     max_offset: float = 0.35) -> float:
+    """返回车道内避让偏移:障碍在正前方时,靠向无车一侧。
+    leads_left/leads_right: 相邻车道最近障碍(LeadData 或 None)
+    返回: 右偏正、左偏负;无避让需求返回 0。
+    """
+    if not self._active:
+      return 0.0
+    # 相邻车道判定:该侧最近障碍距离远(>40m 视为空旷)或不存在
+    def side_clear(lead) -> bool:
+      if lead is None:
+        return True
+      return float(lead.dRel) > 40.0 or abs(float(lead.yRel)) > 5.0
+
+    left_clear = side_clear(leads_left)
+    right_clear = side_clear(leads_right)
+    if left_clear and not right_clear:
+      return -max_offset   # 左侧空,向左避让
+    if right_clear and not left_clear:
+      return max_offset    # 右侧空,向右避让
+    return 0.0             # 两侧都有车或都空:不横向避让(只减速)

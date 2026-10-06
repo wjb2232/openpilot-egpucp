@@ -68,6 +68,8 @@ class LanePlanner:
     self.lane_width_left_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_width_right_filtered = FirstOrderFilter(1.0, 1.0, DT_MDL)
     self.lane_offset_filtered = FirstOrderFilter(0.0, 2.0, DT_MDL)
+    self.avoidance_offset = 0.0   # 阶段2:避障横向偏移(m),由 lateral_planner 注入
+    self.avoidance_offset_target = 0.0
 
     self.lanefull_mode = False
     self.d_prob_count = 0
@@ -166,6 +168,9 @@ class LanePlanner:
     offset_curve = np.interp(abs(curve_speed), [50, 200], [self.adjustCurveOffset, 0.0]) * np.sign(curve_speed)
 
     offset_lane = 0.0
+    # 阶段2:避障横向偏移(车道内小幅贴边,不跨线)
+    # 仅在检测到障碍且非换道时生效,换道中 lane_change_multiplier<0.5 会自动压掉
+    offset_lane += self.avoidance_offset
     if self.lane_width_left_filtered.x > 2.2 and self.lane_width_right_filtered.x > 2.2: #양쪽에 차로가 여유 있는경우
       offset_lane = 0.0
     elif self.lane_width_left_filtered.x < 2.0 and self.lane_width_right_filtered.x < 2.0: #양쪽에 차로가 여유 없는경우

@@ -12,6 +12,7 @@ from openpilot.cereal import log
 from openpilot.common.params import Params
 #from openpilot.selfdrive.controls.lib.lane_planner import LanePlanner
 from openpilot.selfdrive.controls.lib.lane_planner_2 import LanePlanner
+from openpilot.selfdrive.carrot.radar_motion.avoidance import ObstacleAvoidance
 from collections import deque
 
 TRAJECTORY_SIZE = 33
@@ -73,6 +74,8 @@ class LateralPlanner:
     self.curve_speed = 0
     self.lanemode_possible_count = 0
     self.laneless_only = True
+    # 阶段2:避障横向(默认关,AvoidanceEnabled=1 开启)
+    self.obstacle_avoidance = ObstacleAvoidance()
 
   def reset_mpc(self, x0=None):
     if x0 is None:
@@ -146,7 +149,28 @@ class LateralPlanner:
     self.LP.lanefull_mode = self.useLaneLineMode
     self.LP.lane_width_left = md.meta.laneWidthLeft
     self.LP.lane_width_right = md.meta.laneWidthRight
+    # 阶段2:避障横向偏移注入(由 avoidance 模块计算,0=不避让)
+    self.LP.avoidance_offset = float(getattr(self, "_avoidance_offset", 0.0))
     self.LP.curvature = measured_curvature
+    # 阶段2:避障横向偏移(默认关)
+    avoid_offset = 0.0
+    try:
+      if self.params.get_int("AvoidanceEnabled", block=False):
+        rs = sm['radarState'] if sm.alive['radarState'] else None
+        if rs is not None:
+          lead_one = rs.leadOne if rs.leadOne.status else None
+          cs = sm['carState'] if sm.alive['carState'] else None
+          self.obstacle_avoidance.update(lead_one, cs)
+          avoid_offset = self.obstacle_avoidance.lateral_offset(
+            rs.leadsLeft[0] if len(rs.leadsLeft) else None,
+            rs.leadsRight[0] if len(rs.leadsRight) else None,
+          )
+          self.LP.avoidance_offset = avoid_offset
+          if avoid_offset != 0.0:
+            self.latDebugText += f"AVOIDOFF:{avoid_offset:+.2f}m "
+    except Exception as e:
+      print(f"[avoidance-lat] error: {e}")
+
     self.path_xyz, self.lanelines_active = self.LP.get_d_path(sm['carState'], v_ego_car, self.t_idxs, self.path_xyz, self.curve_speed)
 
     if self.lanelines_active:
