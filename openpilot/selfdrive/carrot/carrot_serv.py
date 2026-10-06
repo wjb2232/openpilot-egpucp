@@ -1433,18 +1433,34 @@ class CarrotServ:
       speed_n_sources.append((route_speed, "route"))
       #speed_n_sources.append((self.calculate_current_speed(dist, speed * self.mapTurnSpeedFactor, 0, 1.2), "route"))
 
-    # 避障(阶段1):检测本车道静止/极慢障碍,叠加限速源
+    # 避障(阶段1+3):检测静止障碍 -> 限速 + 自动绕行请求
     # Params 开关 AvoidanceEnabled(默认 0=关)
     avoid_active = False
     try:
       if self.params.get_int("AvoidanceEnabled", block=False) and sm.alive['radarState']:
-        lead_one = sm['radarState'].leadOne
+        rs = sm['radarState']
+        lead_one = rs.leadOne
         cs_any = sm['carState'] if sm.alive['carState'] else None
         est = self.obstacle_avoidance.update(lead_one if lead_one.status else None, cs_any)
         if est.active:
           avoid_active = True
           speed_n_sources.append((est.speed_kph, "avoid"))
           self.debugText += f"AVOID:{est.speed_kph:.0f}km/{est.d_rel_m:.0f}m "
+        # 阶段3:自动绕行(相邻车道空旷时发起换道)
+        v_ego_kph = (cs_any.vEgo * 3.6) if cs_any is not None else 0.0
+        lc_dir = self.obstacle_avoidance.lane_change_request(
+          v_ego_kph,
+          rs.leadsLeft[0] if len(rs.leadsLeft) else None,
+          rs.leadsRight[0] if len(rs.leadsRight) else None,
+          rs.leadsLeft2[0] if len(rs.leadsLeft2) else None,
+          rs.leadsRight2[0] if len(rs.leadsRight2) else None,
+          lane_change_active=(self.carrotCmd == "LANECHANGE"),
+        )
+        if lc_dir is not None:
+          self.carrotCmd = "LANECHANGE"
+          self.carrotArg = lc_dir
+          self.carrotCmdIndex += 1
+          self.debugText += f"LC-{lc_dir} "
     except Exception as e:
       print(f"[avoidance] error: {e}")
 

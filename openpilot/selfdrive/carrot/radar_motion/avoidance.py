@@ -137,3 +137,43 @@ class ObstacleAvoidance:
     if right_clear and not left_clear:
       return max_offset    # 右侧空,向右避让
     return 0.0             # 两侧都有车或都空:不横向避让(只减速)
+
+  # ---- 阶段3:自动绕行请求 ----
+  def lane_change_request(self, v_ego_kph: float, leads_left: object | None,
+                          leads_right: object | None, leads_left2: object | None = None,
+                          leads_right2: object | None = None,
+                          lane_change_active: bool = False) -> str | None:
+    """评估是否应自动换道绕行。返回 "LEFT"/"RIGHT"/None。"""
+    import time
+    now = time.monotonic()
+
+    if now - getattr(self, "_lc_last_request", 0.0) < 8.0:  # COOLDOWN_S
+      return None
+    if lane_change_active:
+      return None
+    if not self._active:
+      return None
+    if v_ego_kph < 40.0:  # MIN_LC_SPEED_KPH
+      return None
+
+    def side_clear(lead) -> bool:
+      if lead is None:
+        return True
+      d = float(lead.dRel)
+      y = abs(float(lead.yRel))
+      return d > 45.0 or y > 5.0
+
+    left_clear = side_clear(leads_left) and side_clear(leads_left2)
+    right_clear = side_clear(leads_right) and side_clear(leads_right2)
+
+    if left_clear and right_clear:
+      direction = "LEFT"
+    elif left_clear:
+      direction = "LEFT"
+    elif right_clear:
+      direction = "RIGHT"
+    else:
+      return None
+
+    self._lc_last_request = now
+    return direction
