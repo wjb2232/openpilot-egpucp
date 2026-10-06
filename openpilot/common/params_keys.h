@@ -24,6 +24,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RoadFocalAuto", {PERSISTENT, BYTES}},
     {"CamCalibWide", {PERSISTENT, BYTES}},
     {"CamCalibRoad", {PERSISTENT, BYTES}},
+    {"AvoidanceEnabled", {PERSISTENT, INT, "0"}},
     {"CameraDebugExpGain", {CLEAR_ON_MANAGER_START, STRING}},
     {"CameraDebugExpTime", {CLEAR_ON_MANAGER_START, STRING}},
     {"CarBatteryCapacity", {PERSISTENT, INT}},

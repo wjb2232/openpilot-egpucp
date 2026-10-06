@@ -11,6 +11,7 @@ import numpy as np
 from datetime import datetime
 
 from openpilot.cereal import log
+from openpilot.selfdrive.carrot.radar_motion.avoidance import ObstacleAvoidance
 import openpilot.cereal.messaging as messaging
 from openpilot.common.realtime import Ratekeeper
 from openpilot.common.params import Params
@@ -87,6 +88,7 @@ class CarrotServ:
   def __init__(self):
     self.params = Params()
     self.params_memory = Params("/dev/shm/params")
+    self.obstacle_avoidance = ObstacleAvoidance()
 
     self.nRoadLimitSpeed = 30
     self.nRoadLimitSpeed_last = 30
@@ -1430,6 +1432,21 @@ class CarrotServ:
     elif self.turnSpeedControlMode in [3, 4]:
       speed_n_sources.append((route_speed, "route"))
       #speed_n_sources.append((self.calculate_current_speed(dist, speed * self.mapTurnSpeedFactor, 0, 1.2), "route"))
+
+    # 避障(阶段1):检测本车道静止/极慢障碍,叠加限速源
+    # Params 开关 AvoidanceEnabled(默认 0=关)
+    avoid_active = False
+    try:
+      if self.params.get_int("AvoidanceEnabled", block=False) and sm.alive['radarState']:
+        lead_one = sm['radarState'].leadOne
+        cs_any = sm['carState'] if sm.alive['carState'] else None
+        est = self.obstacle_avoidance.update(lead_one if lead_one.status else None, cs_any)
+        if est.active:
+          avoid_active = True
+          speed_n_sources.append((est.speed_kph, "avoid"))
+          self.debugText += f"AVOID:{est.speed_kph:.0f}km/{est.d_rel_m:.0f}m "
+    except Exception as e:
+      print(f"[avoidance] error: {e}")
 
     desired_speed, source = min(speed_n_sources, key=lambda x: x[0])
 
