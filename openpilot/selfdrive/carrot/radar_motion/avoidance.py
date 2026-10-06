@@ -120,7 +120,9 @@ class ObstacleAvoidance:
 
   # ---- 阶段2:横向避让 ----
   def lateral_offset(self, leads_left: object | None, leads_right: object | None,
-                     max_offset: float = 0.35) -> float:
+                     max_offset: float = 0.35,
+                     lane_avail_left: bool | None = None,
+                     lane_avail_right: bool | None = None) -> float:
     """返回车道内避让偏移:障碍在正前方时,靠向无车一侧。
     leads_left/leads_right: 相邻车道最近障碍(LeadData 或 None)
     返回: 右偏正、左偏负;无避让需求返回 0。
@@ -136,19 +138,22 @@ class ObstacleAvoidance:
         return True
       return float(lead.dRel) > 40.0 or abs(float(lead.yRel)) > 5.0
 
-    left_clear = side_clear(leads_left)
-    right_clear = side_clear(leads_right)
+    # 优先模型融合判据(车道线+路缘+BSD);None 时退回雷达 side_clear
+    left_clear = lane_avail_left if lane_avail_left is not None else side_clear(leads_left)
+    right_clear = lane_avail_right if lane_avail_right is not None else side_clear(leads_right)
     if left_clear and not right_clear:
-      return -max_offset   # 左侧空,向左避让
+      return -max_offset   # 左侧可绕,向左避让
     if right_clear and not left_clear:
-      return max_offset    # 右侧空,向右避让
-    return 0.0             # 两侧都有车或都空:不横向避让(只减速)
+      return max_offset    # 右侧可绕,向右避让
+    return 0.0             # 两侧都不可绕或都空:不横向避让(只减速)
 
   # ---- 阶段3:自动绕行请求 ----
   def lane_change_request(self, v_ego_kph: float, leads_left: object | None,
                           leads_right: object | None, leads_left2: object | None = None,
                           leads_right2: object | None = None,
-                          lane_change_active: bool = False) -> str | None:
+                          lane_change_active: bool = False,
+                          lane_avail_left: bool | None = None,
+                          lane_avail_right: bool | None = None) -> str | None:
     """评估是否应自动换道绕行。返回 "LEFT"/"RIGHT"/None。"""
     import time
     now = time.monotonic()
@@ -172,8 +177,15 @@ class ObstacleAvoidance:
       y = abs(float(lead.yRel))
       return d > 45.0 or y > 5.0
 
-    left_clear = side_clear(leads_left) and side_clear(leads_left2)
-    right_clear = side_clear(leads_right) and side_clear(leads_right2)
+    # 优先模型融合判据(车道线+路缘);None 时退回雷达 side_clear
+    if lane_avail_left is not None:
+      left_clear = lane_avail_left
+    else:
+      left_clear = side_clear(leads_left) and side_clear(leads_left2)
+    if lane_avail_right is not None:
+      right_clear = lane_avail_right
+    else:
+      right_clear = side_clear(leads_right) and side_clear(leads_right2)
 
     if left_clear and right_clear:
       direction = "LEFT"

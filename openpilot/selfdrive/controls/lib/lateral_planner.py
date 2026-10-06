@@ -159,9 +159,15 @@ class LateralPlanner:
           lead_one = rs.leadOne if rs.leadOne.status else None
           cs = sm['carState'] if sm.alive['carState'] else None
           self.obstacle_avoidance.update(lead_one, cs)
+          # 模型融合判据:无车道线但有路缘时也能判定可绕空间
+          md = sm['modelV2'] if sm.alive['modelV2'] else None
+          lav_l = bool(md.meta.laneChangeAvailableLeft) if md is not None else None
+          lav_r = bool(md.meta.laneChangeAvailableRight) if md is not None else None
           avoid_offset = self.obstacle_avoidance.lateral_offset(
             rs.leadsLeft[0] if len(rs.leadsLeft) else None,
             rs.leadsRight[0] if len(rs.leadsRight) else None,
+            lane_avail_left=lav_l,
+            lane_avail_right=lav_r,
           )
           self.LP.avoidance_offset = avoid_offset
           if avoid_offset != 0.0:

@@ -1456,6 +1456,10 @@ class CarrotServ:
           _lc_active = _lc_state != _log.LaneChangeState.off
         except Exception:
           _lc_active = False
+        # 模型融合判据:无车道线但有路缘时也能判定可绕空间
+        _md = sm['modelV2'] if sm.alive['modelV2'] else None
+        _lav_l = bool(_md.meta.laneChangeAvailableLeft) if _md is not None else None
+        _lav_r = bool(_md.meta.laneChangeAvailableRight) if _md is not None else None
         lc_dir = self.obstacle_avoidance.lane_change_request(
           v_ego_kph,
           rs.leadsLeft[0] if len(rs.leadsLeft) else None,
@@ -1463,6 +1467,8 @@ class CarrotServ:
           rs.leadsLeft2[0] if len(rs.leadsLeft2) else None,
           rs.leadsRight2[0] if len(rs.leadsRight2) else None,
           lane_change_active=_lc_active,
+          lane_avail_left=_lav_l,
+          lane_avail_right=_lav_r,
         )
         if lc_dir is not None:
           self.carrotCmd = "LANECHANGE"
