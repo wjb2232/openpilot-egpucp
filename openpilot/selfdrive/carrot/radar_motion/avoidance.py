@@ -82,6 +82,9 @@ class ObstacleAvoidance:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "matching-lead")
     speed_kph = v_ego * max(0.0, d_rel / TARGET_GAP_M)
     speed_kph = min(speed_kph, MAX_AVOID_SPEED_KPH)
+    # 下限保护:desiredSpeed=0 会被 controlsd 过滤(0<desiredSpeed<=250),
+    # 最低 1.0 kph 保证通道有效;真正刹停由 MPC 接管。
+    speed_kph = max(speed_kph, 1.0)
     return AvoidanceEstimate(True, speed_kph, d_rel, d_path, v_rel, "stopped-obstacle")
 
   def update(self, lead: object | None, car_state: object | None) -> AvoidanceEstimate:

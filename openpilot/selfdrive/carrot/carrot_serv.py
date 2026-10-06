@@ -1448,19 +1448,33 @@ class CarrotServ:
           self.debugText += f"AVOID:{est.speed_kph:.0f}km/{est.d_rel_m:.0f}m "
         # 阶段3:自动绕行(相邻车道空旷时发起换道)
         v_ego_kph = (cs_any.vEgo * 3.6) if cs_any is not None else 0.0
+        # 换道中判定:用模型真实状态(不能用 carrotCmd,它触后会复位)
+        _lc_active = False
+        try:
+          from openpilot.cereal import log as _log
+          _lc_state = sm['modelV2'].meta.laneChangeState
+          _lc_active = _lc_state != _log.LaneChangeState.off
+        except Exception:
+          _lc_active = False
         lc_dir = self.obstacle_avoidance.lane_change_request(
           v_ego_kph,
           rs.leadsLeft[0] if len(rs.leadsLeft) else None,
           rs.leadsRight[0] if len(rs.leadsRight) else None,
           rs.leadsLeft2[0] if len(rs.leadsLeft2) else None,
           rs.leadsRight2[0] if len(rs.leadsRight2) else None,
-          lane_change_active=(self.carrotCmd == "LANECHANGE"),
+          lane_change_active=_lc_active,
         )
         if lc_dir is not None:
           self.carrotCmd = "LANECHANGE"
           self.carrotArg = lc_dir
           self.carrotCmdIndex += 1
           self.debugText += f"LC-{lc_dir} "
+          # 注意:不能在此复位 carrotCmd!消息在 update_navi 末尾(1551)才发送,
+          # 立即复位会导致发出去的命令为空,DesireHelper 永不触发。
+          # DesireHelper 靠 carrotCmdIndex 变化 edge-trigger,cmd 保持无害。
+        elif self.carrotCmd == "LANECHANGE":
+          # 本轮未请求换道:清理悬挂命令(已发送过;index 不变不会重复触发)
+          self.carrotCmd = ""
     except Exception as e:
       print(f"[avoidance] error: {e}")
 

@@ -168,9 +168,6 @@ class LanePlanner:
     offset_curve = np.interp(abs(curve_speed), [50, 200], [self.adjustCurveOffset, 0.0]) * np.sign(curve_speed)
 
     offset_lane = 0.0
-    # 阶段2:避障横向偏移(车道内小幅贴边,不跨线)
-    # 仅在检测到障碍且非换道时生效,换道中 lane_change_multiplier<0.5 会自动压掉
-    offset_lane += self.avoidance_offset
     if self.lane_width_left_filtered.x > 2.2 and self.lane_width_right_filtered.x > 2.2: #양쪽에 차로가 여유 있는경우
       offset_lane = 0.0
     elif self.lane_width_left_filtered.x < 2.0 and self.lane_width_right_filtered.x < 2.0: #양쪽에 차로가 여유 없는경우
@@ -212,6 +209,14 @@ class LanePlanner:
       diff_center = 0.0
     #print("center = {:.2f}={:.2f}-{:.2f}, lanefull={}".format(diff_center, lane_path_y_center, path_xyz_y_center, self.lanefull_mode))
     #diff_center = lane_path_y[5] - path_xyz[:,1][5] if not self.lanefull_mode else 0.0
+    # 阶段2:避障横向偏移(车道内小幅贴边,不跨线)——此处叠加不被上面分支覆盖
+    # 换道中 lane_change_multiplier<0.5 会在 d_prob 处压掉,不干扰换道
+    if offset_curve * self.avoidance_offset < 0:
+      offset_lane = np.clip(offset_lane + self.avoidance_offset, -0.4, 0.4)
+    else:
+      offset_lane = np.clip(max(offset_lane, self.avoidance_offset, key=abs), -0.4, 0.4)
+    self.debugText_avoid = f"AVOFF:{self.avoidance_offset:+.2f} "
+
     if offset_curve * offset_lane < 0:
       offset_total = np.clip(offset_curve + offset_lane + diff_center, - ADJUST_OFFSET_LIMIT, ADJUST_OFFSET_LIMIT)
     else:

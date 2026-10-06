@@ -149,8 +149,6 @@ class LateralPlanner:
     self.LP.lanefull_mode = self.useLaneLineMode
     self.LP.lane_width_left = md.meta.laneWidthLeft
     self.LP.lane_width_right = md.meta.laneWidthRight
-    # 阶段2:避障横向偏移注入(由 avoidance 模块计算,0=不避让)
-    self.LP.avoidance_offset = float(getattr(self, "_avoidance_offset", 0.0))
     self.LP.curvature = measured_curvature
     # 阶段2:避障横向偏移(默认关)
     avoid_offset = 0.0
