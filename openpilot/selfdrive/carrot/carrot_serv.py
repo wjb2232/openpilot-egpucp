@@ -11,6 +11,7 @@ import numpy as np
 from datetime import datetime
 
 from openpilot.cereal import log
+from openpilot.selfdrive.carrot.radar_motion.obstacle_vision import VisionObstacleDetector
 from openpilot.selfdrive.carrot.radar_motion.avoidance import ObstacleAvoidance
 import openpilot.cereal.messaging as messaging
 from openpilot.common.realtime import Ratekeeper
@@ -89,6 +90,10 @@ class CarrotServ:
     self.params = Params()
     self.params_memory = Params("/dev/shm/params")
     self.obstacle_avoidance = ObstacleAvoidance()
+    # 视觉小目标检测(行人/自行车/动物)——YOLOv8n,低频采样
+    self.vision_detector = VisionObstacleDetector()
+    self._vision_vipc = None
+    self._vision_vipc_tried = 0.0
 
     self.nRoadLimitSpeed = 30
     self.nRoadLimitSpeed_last = 30
@@ -1446,6 +1451,29 @@ class CarrotServ:
           avoid_active = True
           speed_n_sources.append((est.speed_kph, "avoid"))
           self.debugText += f"AVOID:{est.speed_kph:.0f}km/{est.d_rel_m:.0f}m "
+        # 视觉小目标融合(行人/自行车/动物):VisionIpc 拿画面→YOLO→虚拟障碍
+        try:
+          from msgq.visionipc import VisionIpcClient, VisionStreamType
+          if self._vision_vipc is None and time.monotonic() - self._vision_vipc_tried > 2.0:
+            self._vision_vipc_tried = time.monotonic()
+            self._vision_vipc = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_ROAD, False)
+            if not self._vision_vipc.connect(False):
+              self._vision_vipc = None
+          if self._vision_vipc is not None:
+            buf = self._vision_vipc.recv(timeout=0)
+            if buf is not None:
+              y_plane = np.frombuffer(buf.data[:buf.height * buf.stride], dtype=np.uint8).reshape(buf.height, buf.stride)[:, :buf.width]
+              vis_obs = self.vision_detector.detect(y_plane)
+              if vis_obs and cs_any is not None:
+                # 最近的本车道障碍
+                in_lane = [o for o in vis_obs if abs(o.y_rel) < 3.5]
+                if in_lane:
+                  nearest = min(in_lane, key=lambda o: o.d_rel)
+                  self.obstacle_avoidance.update_vision(nearest, cs_any)
+                  self.debugText += f"VIS:{nearest.cls[:4]}:{nearest.d_rel:.0f}m "
+        except Exception as e:
+          print(f"[avoidance-vis] error: {e}")
+
         # 阶段3:自动绕行(相邻车道空旷时发起换道)
         v_ego_kph = (cs_any.vEgo * 3.6) if cs_any is not None else 0.0
         # 换道中判定:用模型真实状态(不能用 carrotCmd,它触后会复位)

@@ -198,3 +198,26 @@ class ObstacleAvoidance:
 
     self._lc_last_request = now
     return direction
+
+  # ---- 视觉小目标融合(行人/自行车/动物/锥桶) ----
+  # 用 YOLO 检测结果(视觉)作为额外"虚拟前车"输入,
+  # 与雷达 leadOne 取"更危险者"喂给状态机。
+  # vision_obstacle: VisionObstacle(cls, d_rel, y_rel, conf, bbox) 或 None
+  def update_vision(self, vision_obstacle, car_state) -> None:
+    """把视觉障碍折成虚拟 lead 喂进 update()。只有本车道内的才触发。"""
+    if vision_obstacle is None or car_state is None:
+      return
+    # 只看本车道内目标(横向偏移 < 3.5m,与雷达 dPath 判据一致)
+    if abs(vision_obstacle.y_rel) > 3.5:
+      return
+
+    class _VirtualLead:
+      pass
+
+    vlead = _VirtualLead()
+    vlead.dRel = vision_obstacle.d_rel
+    vlead.dPath = vision_obstacle.y_rel
+    vlead.vRel = -3.0  # 视为静止/极慢目标(行人/动物不会快速让开)
+    vlead.vLead = 0.0
+    # 用虚拟 lead 驱动同一状态机(阶段1 减速 + 防抖)
+    self.update(vlead, car_state)
