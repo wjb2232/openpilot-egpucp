@@ -1460,7 +1460,7 @@ class CarrotServ:
             if not self._vision_vipc.connect(False):
               self._vision_vipc = None
           if self._vision_vipc is not None:
-            buf = self._vision_vipc.recv(timeout=0)
+            buf = self._vision_vipc.recv(0)  # 位置参数:此 fork 的 pyx 不支持 timeout= 关键字
             if buf is not None:
               y_plane = np.frombuffer(buf.data[:buf.height * buf.stride], dtype=np.uint8).reshape(buf.height, buf.stride)[:, :buf.width]
               vis_obs = self.vision_detector.detect(y_plane)
