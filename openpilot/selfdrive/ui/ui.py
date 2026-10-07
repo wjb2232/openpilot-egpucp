@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
-import gc
+# DISPLAY 兜底必须在 import 之前:pyray/EGL 在 import 时就初始化,
+# 若此处未设而环境缺失,GLFW 连默认 :0(NVIDIA X)会失败 → UI 卡死无窗口。
+# 串流/无物理屏场景统一连 :99(Xvfb,raylib 已验证可初始化)。
 import os
+if not os.environ.get("DISPLAY"):
+  os.environ["DISPLAY"] = ":99"
+
+import gc
 
 from openpilot.system.hardware import TICI
 from openpilot.common.realtime import set_core_affinity
