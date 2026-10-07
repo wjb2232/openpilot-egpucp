@@ -27,10 +27,11 @@ if [ -f "$(dirname "${BASH_SOURCE[0]}")/.venv/bin/activate" ]; then
   source "$(dirname "${BASH_SOURCE[0]}")/.venv/bin/activate"
 fi
 
-# UI: 1920x1200 monitor -> big-UI canvas (2160x1080) scaled to fit (0.889)
+# UI: 1024x600 触摸屏 -> big-UI canvas,原生 1:1 无缩放
 export BIG="1"
-export SCALE="0.889"
-# UI 显示到 Xvfb :99(seeed 无屏桌面,开机自启;sunshine 也抓这个屏)
+export UI_WIDTH="1024"
+export UI_HEIGHT="600"
+export SCALE="1.0"
 export DISPLAY=":0"
 #!/usr/bin/env bash
 # Jetson dev/sim mode: the Qualcomm-only camerad (spectra.cc) asserts on this
