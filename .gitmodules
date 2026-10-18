@@ -30,4 +30,4 @@
 [submodule "jetlink"]
   path = jetlink_repo
   url = https://github.com/wjb2232/openpilot-egpucp.git
-	branch = cn
+	branch = jetlink
