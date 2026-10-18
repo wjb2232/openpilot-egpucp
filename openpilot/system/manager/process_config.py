@@ -283,7 +283,7 @@ procs = [
   PythonProcess("lagd", "openpilot.selfdrive.locationd.lagd", only_onroad),
   PythonProcess("ubloxd", "openpilot.system.ubloxd.ubloxd", ublox, enabled=COMMA_HARDWARE),
   PythonProcess("pigeond", "openpilot.system.ubloxd.pigeond", ublox, enabled=COMMA_HARDWARE),
-  PythonProcess("plannerd", "openpilot.selfdrive.controls.plannerd", not_long_maneuver),
+  PythonProcess("plannerd", "openpilot.selfdrive.controls.plannerd_exec_wrapper", not_long_maneuver),
   PythonProcess("maneuversd", "openpilot.tools.longitudinal_maneuvers.maneuversd", long_maneuver),
   PythonProcess("lateral_maneuversd", "openpilot.tools.lateral_maneuvers.lateral_maneuversd", lat_maneuver),
   # EnableRadarTracks swaps in CarrotPilot's CAN-driven radar stack: radarcan

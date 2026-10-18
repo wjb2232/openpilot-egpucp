@@ -35,7 +35,9 @@ class Camerad:
       cam_device = f"/dev/video{c.cam_id}" if platform.system() != "Darwin" else c.cam_id
       cam = Camera(c.msg_name, c.stream_type, cam_device)
       self.cameras.append(cam)
-      self.vipc_server.create_buffers(c.stream_type, 20, cam.W, cam.H)
+      # VENUS NV12 layout (128B stride etc.) so modeld's frame_copy_size fits
+      self.vipc_server.create_buffers_with_sizes(c.stream_type, 20, cam.W, cam.H,
+                                                 cam.frame_size, cam.stride, cam.uv_offset)
 
     self.vipc_server.start_listener()
 

@@ -670,7 +670,7 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   EventName.calibrationIncomplete: {
     ET.PERMANENT: calibration_incomplete_alert,
     ET.SOFT_DISABLE: soft_disable_alert("校准未完成"),
-    ET.NO_ENTRY: NoEntryAlert("校准进行中"),
+    ET.NO_ENTRY: NoEntryAlert("校准进行中", "校准未完成"),
   },
 
   EventName.calibrationRecalibrating: {

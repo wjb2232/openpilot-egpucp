@@ -29,5 +29,5 @@
 	url = https://github.com/mouxangithub/webui.git
 [submodule "jetlink"]
   path = jetlink_repo
-  url = https://github.com/mouxangithub/jetlink.git
+  url = https://github.com/wjb2232/openpilot-egpucp.git
 	branch = cn

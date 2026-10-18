@@ -20,3 +20,19 @@ if [ -z "$AGNOS_VERSION" ]; then
 fi
 
 export STAGING_ROOT="/data/safe_staging"
+
+source /data/openpilot_c3/.venv/bin/activate
+
+# Jetson/Orin Python runtime tuning (doc 14.6, field-verified)
+export PYTHONHASHSEED=42
+export PYTHONMALLOC=malloc
+export MALLOC_ARENA_MAX=2
+export PYTHONOPTIMIZE=1
+export PYTHONNOUSERSITE=1
+
+# --- webcamerad (GMSL via v4l2 direct, field-verified) ---
+export USE_WEBCAM=1
+export ROAD_CAM=0
+export WIDE_CAM=1
+export CAM_WIDTH=1344
+export CAM_HEIGHT=760

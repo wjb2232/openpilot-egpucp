@@ -36,6 +36,10 @@ Export('camera_configs')
 if arch == 'comma_arm64':
   tg_backend = 'QCOM'
   tg_flags = f'DEV={tg_backend} IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
+elif os.path.isfile('/etc/nv_tegra_release'):
+  # AGX Orin / Jetson: use CUDA backend (field-verified CUDA 13.2 present)
+  tg_backend = 'CUDA'
+  tg_flags = f'DEV={tg_backend} IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
 else:
   tg_backend = 'CPU'
   tg_flags = f'DEV=CPU' if arch == 'Darwin' else 'DEV=CPU:LLVM'
