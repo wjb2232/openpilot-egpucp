@@ -51,10 +51,10 @@ ensure_pip_dep() {
   flock 200 || return 1
 
   # Re-check after acquiring lock in case another instance just installed it.
-  [ -d "$pydeps/$module" ] && return 0
+  [ -d "$pydeps/$module" ] && { flock -u 200; exec 200>&-; return 0; }
 
   if ! PYTHONPATH="$py_path" "$py" -c "import $module" 2>/dev/null; then
-    [ -d "$pydeps" ] || mkdir -p "$pydeps" 2>/dev/null || return 1
+    [ -d "$pydeps" ] || mkdir -p "$pydeps" 2>/dev/null || { flock -u 200; exec 200>&-; return 1; }
     if ! "$py" -c "import pip" 2>/dev/null; then
       # Device network cannot reach bootstrap.pypa.io, so prefer Aliyun mirror.
       curl -fsSL "${GET_PIP_URL:-https://mirrors.aliyun.com/pypi/get-pip.py}" -o /tmp/get-pip.py 2>/dev/null && \
@@ -64,9 +64,11 @@ ensure_pip_dep() {
     # the get-pip bootstrap above prefers mirrors.aliyun.com. Override with PIP_INDEX_URL.
     local index_url="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
     local tmpdir=$(pip_scratch_dir)
-    TMPDIR="$tmpdir" PYTHONPATH="$py_path" "$py" -m pip install --no-cache-dir --index-url="$index_url" --target="$pydeps" "$module" >> /tmp/bootstrap.log 2>&1 || return 1
+    TMPDIR="$tmpdir" PYTHONPATH="$py_path" "$py" -m pip install --no-cache-dir --index-url="$index_url" --target="$pydeps" "$module" >> /tmp/bootstrap.log 2>&1 || { flock -u 200; exec 200>&-; return 1; }
     rm -rf "$tmpdir"/pip-* 2>/dev/null || true
   fi
+  flock -u 200 2>/dev/null || true
+  exec 200>&-
 }
 
 # Waits up to $1 seconds for a working DNS resolver. Returns 0 as soon as a
@@ -159,6 +161,8 @@ ensure_pip_deps() {
   done
 
   if [ ${#missing[@]} -eq 0 ]; then
+    flock -u 200 2>/dev/null || true
+    exec 200>&-
     return 0
   fi
 
@@ -175,17 +179,19 @@ ensure_pip_deps() {
     # whether to keep retrying. Returning 0 here would look like "deps are fine"
     # and the packages would never be installed, leaving aid/webui crash-looping
     # until someone restarted the device by hand.
+    flock -u 200 2>/dev/null || true
+    exec 200>&-
     return 1
   fi
 
-  [ -d "$pydeps" ] || mkdir -p "$pydeps" 2>/dev/null || return 1
+  [ -d "$pydeps" ] || mkdir -p "$pydeps" 2>/dev/null || { flock -u 200; exec 200>&-; return 1; }
   if ! "$py" -c "import pip" 2>/dev/null; then
     curl -fsSL "${GET_PIP_URL:-https://mirrors.aliyun.com/pypi/get-pip.py}" -o /tmp/get-pip.py 2>/dev/null && \
-      "$py" /tmp/get-pip.py --target="$pydeps" --no-warn-script-location >> /tmp/bootstrap.log 2>&1 || return 1
+      "$py" /tmp/get-pip.py --target="$pydeps" --no-warn-script-location >> /tmp/bootstrap.log 2>&1 || { flock -u 200; exec 200>&-; return 1; }
   fi
 
   # The device cannot reach pypi.org (TLS dies with SSL_ERROR_SYSCALL); same reason
-  # the get-pip bootstrap below prefers mirrors.aliyun.com. Override with PIP_INDEX_URL.
+  # the get-pip bootstrap above prefers mirrors.aliyun.com. Override with PIP_INDEX_URL.
   local index_url="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
   # --upgrade makes this a real repair path: a package directory left behind by an
   # interrupted download makes plain install report "already exists" and skip the
@@ -196,10 +202,14 @@ ensure_pip_deps() {
   if ! TMPDIR="$tmpdir" PYTHONPATH="$py_path" "$py" -m pip install --no-cache-dir --upgrade --index-url="$index_url" --target="$pydeps" "${requirements[@]}" >> /tmp/bootstrap.log 2>&1; then
     echo "[ensure_pip_deps] install failed; will retry on next keep_alive cycle" >> /tmp/bootstrap.log
     rm -rf "$tmpdir"/pip-* 2>/dev/null || true
+    flock -u 200 2>/dev/null || true
+    exec 200>&-
     return 1
   fi
   rm -rf "$tmpdir"/pip-* 2>/dev/null || true
   echo "[ensure_pip_deps] installed: ${requirements[*]}" >> /tmp/bootstrap.log
+  flock -u 200 2>/dev/null || true
+  exec 200>&-
 }
 
 # Probe form is "<import>" or "<import>; assert <expr>". The assertion matters: a
@@ -790,6 +800,13 @@ launch() {
   [ -f /AGNOS ] && agnos_init
 
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
+
+  # Serial IMU (Yahboom, /dev/ttyTHS2) + SIM7600 GPS (/dev/ttyUSB1) for the
+  # bench. Both publish to msgq (accelerometer/gyroscope + gpsLocationExternal).
+  # Only started when the devices are actually present, and kept alive in case
+  # the reader dies. Modules live under tools/sim so `python -m` can find them.
+  [ -e /dev/ttyTHS2 ] && keep_alive serial_imu tools/sim/serial_imu.py 0 20 &
+  [ -e /dev/ttyUSB1 ] && keep_alive serial_gps tools/sim/serial_gps.py 0 20 &
 
   cd openpilot/system/manager
   if [ ! -f "$DIR/prebuilt" ]; then
