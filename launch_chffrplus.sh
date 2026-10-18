@@ -88,6 +88,23 @@ function launch {
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
+  # Serial IMU (Yahboom /dev/ttyTHS2) + SIM7600 GPS (/dev/ttyUSB1) -> msgq.
+  # Only started when the devices are present; each is kept alive with a
+  # 20s restart loop. venv python + tree PYTHONPATH match the rest of the stack.
+  serial_daemon() {
+    local name="$1" module="$2"
+    local logfile="/tmp/${name}.log"
+    while true; do
+      pgrep -f "[p]ython.*${module}" >/dev/null 2>&1 || {
+        echo "[${name}] starting $(date)" >> "$logfile"
+        (cd "$DIR" && PYTHONPATH="$DIR" nohup "$DIR/.venv/bin/python" -m "$module" >> "$logfile" 2>&1 &)
+      }
+      sleep 20
+    done
+  }
+  [ -e /dev/ttyTHS2 ] && serial_daemon serial_imu tools.sim.serial_imu &
+  [ -e /dev/ttyUSB1 ] && serial_daemon serial_gps tools.sim.serial_gps &
+
   # start manager
   cd openpilot/system/manager
   if [ ! -f "$DIR/prebuilt" ]; then
