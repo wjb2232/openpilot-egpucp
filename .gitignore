@@ -125,3 +125,7 @@ sessions/
 !.run/*
 *.apk
 /jetlink_ci/
+
+# TRT ONNX plan files (built locally, too large for git)
+openpilot/selfdrive/modeld/models/*_trt.onnx
+openpilot/selfdrive/modeld/models/*_trt.plan

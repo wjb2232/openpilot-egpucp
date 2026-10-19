@@ -3,6 +3,7 @@ from collections.abc import Callable
 import ctypes
 from functools import cached_property
 import os
+import sys
 os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
 from tinygrad.device import Device
 import usb1
@@ -22,6 +23,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
 from openpilot.common.dm import is_dm_disabled
 from openpilot.common.filter_simple import FirstOrderFilter
+from pathlib import Path
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
@@ -31,7 +33,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, 
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, nv12_copy_size, MODELD_INPUTS
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
-from openpilot.common.file_chunker import open_file_chunked
+from openpilot.common.file_chunker import open_file_chunked, get_manifest_path
 from openpilot.common.hardware.usb import CHESTNUT_USB_IDS
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import (chestnut_present, chestnut_compiled, chestnut_ready, modeld_pkl_path, load_oob,
@@ -258,6 +260,43 @@ class ModelState(ModelStateBase):
 def main(demo=False):
   cloudlog.warning("modeld init")
 
+  # When the TRT plan exists, modeld must run under the system python3 (GCC
+  # ABI): the uv/Clang venv python crashes executing TRT C++ exceptions across
+  # ABIs. Restart ourselves under /usr/bin/python3 with the venv site-packages
+  # and the system dist-packages on PYTHONPATH.
+  def trt_plan_path() -> str:
+    try:
+      base = modeld_pkl_path(chestnut=True)
+      plan = base.with_name(base.name.replace('big_driving_tinygrad.pkl', 'big_driving_supercombo_trt.plan'))
+      return str(plan) if Path(plan).is_file() else ''
+    except Exception:
+      return ''
+
+  trt_plan = trt_plan_path()
+  if trt_plan and 'MODELD_SYSPY' not in os.environ and sys.executable != '/usr/bin/python3':
+    from openpilot.common.basedir import BASEDIR
+    venv_sp = str(Path(BASEDIR).parent / '.venv' / 'lib' / 'python3.12' / 'site-packages')
+    user_sp = str(Path.home() / '.local' / 'lib' / 'python3.12' / 'site-packages')
+    sysdist = '/usr/lib/python3.12/dist-packages'
+    cur_pypath = os.environ.get('PYTHONPATH', '')
+    os.environ['PYTHONPATH'] = ':'.join(x for x in (sysdist, user_sp, venv_sp, cur_pypath) if x and Path(x).is_dir())
+    os.environ['MODELD_SYSPY'] = '1'
+    cloudlog.warning("modeld: TRT plan found, restarting under system python3")
+    os.execv('/usr/bin/python3', ['python3', '-m', 'openpilot.selfdrive.modeld.modeld'])
+
+  # Local-device big model: the compiled big-model pkl is CUDA-bound and ready
+  # on this host's own GPU, so it can run without a USB chestnut accelerator.
+  def local_big_model_ready() -> bool:
+    try:
+      pkl = modeld_pkl_path(chestnut=True)
+      if not Path(get_manifest_path(pkl)).is_file():
+        return False
+      jits = load_oob(open_file_chunked(pkl))
+      dev = jits.get('input_devices', {}).get('model', '')
+      return dev == 'CUDA' or dev == 'NV'
+    except Exception:
+      return False
+
   chestnut_available = chestnut_present() and chestnut_compiled()
   CHESTNUT = False
   if chestnut_available:
@@ -269,7 +308,9 @@ def main(demo=False):
         break
       msg = messaging.recv_one_or_none(sock)
       CHESTNUT = msg is not None and msg.valid and chestnut_ready(msg.chestnutState)
-  if CHESTNUT:
+  if not CHESTNUT and (trt_plan or local_big_model_ready()):
+    cloudlog.warning("using local big model (TRT plan or CUDA-bound pkl, no USB chestnut)")
+    CHESTNUT = True
     os.environ['HCQDEV_WAIT_TIMEOUT_MS'] = '3000'
   params = Params()
   params.put_bool("ChestnutLoading", CHESTNUT)
@@ -314,7 +355,11 @@ def main(demo=False):
     def load_big():
       nonlocal big_model
       try:
-        m = ModelState(vipc_client_main.width, vipc_client_main.height, True)
+        if trt_plan:
+          from openpilot.selfdrive.modeld.trt_model_state import TrtModelState
+          m = TrtModelState(vipc_client_main.width, vipc_client_main.height, True, trt_plan)
+        else:
+          m = ModelState(vipc_client_main.width, vipc_client_main.height, True)
         m.warmup()
         big_model = m
       except Exception:
