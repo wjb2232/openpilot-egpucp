@@ -232,6 +232,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ModelManager_ActiveBundle", {PERSISTENT, JSON}},
     {"ModelManager_ActiveBundleUSBGPU", {PERSISTENT, JSON}}, //TODO-SP: kept for migration, remove on next sync?
     {"ModelManager_ActiveBundleChestnut", {PERSISTENT, JSON}},
+    {"ModelAutoAdopt_Ref", {PERSISTENT, STRING}},
+    {"ModelAutoAdopt_Sha", {PERSISTENT, STRING}},
+    {"ModelAutoAdopt_Status", {PERSISTENT | CLEAR_ON_MANAGER_START, STRING}},
     {"ModelManager_ActiveJson", {CLEAR_ON_MANAGER_START, JSON}},
     {"ModelManager_ClearCache", {CLEAR_ON_MANAGER_START, BOOL}},
     {"ModelManager_DownloadRef", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, STRING}},

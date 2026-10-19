@@ -129,3 +129,4 @@ sessions/
 # TRT ONNX plan files (built locally, too large for git)
 openpilot/selfdrive/modeld/models/*_trt.onnx
 openpilot/selfdrive/modeld/models/*_trt.plan
+openpilot/sunnypilot/carrot/radar_motion/_motion_native.cpp

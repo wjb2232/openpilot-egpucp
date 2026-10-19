@@ -129,8 +129,19 @@ def is_tinygrad_model(started, params, CP: car.CarParams) -> bool:
   return bool(get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.tinygrad)
 
 def is_stock_model(started, params, CP: car.CarParams) -> bool:
-  """Check if the active model runner is stock."""
-  return bool(get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.stock)
+  """Check if the active model runner is stock, OR a local TRT plan is ready
+  (our on-device ONNX backend; modeld loads it directly, bypassing the
+  tinygrad runner entirely)."""
+  if get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.stock:
+    return True
+  # local TRT backend: big driving plan present -> modeld can run on-device
+  from openpilot.selfdrive.modeld.helpers import MODELS_DIR
+  if (MODELS_DIR / "big_driving_supercombo_trt.plan").is_file():
+    return True
+  return False
+
+def always_true(started, params, CP: car.CarParams) -> bool:
+  return True
 
 def imu_calibration_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
   return params.get_bool("ImuCalibrationEnabled")
@@ -313,6 +324,7 @@ procs = [
 procs += [
   # Models
   PythonProcess("models_manager", "openpilot.sunnypilot.models.manager", only_offroad),
+  PythonProcess("auto_adopt", "openpilot.sunnypilot.models.auto_adopt", only_offroad, restart_if_crash=True),
   # always_run: jetlinkd holds the USB gadget open for as long as the link is
   # enabled, onroad included. A gadget whose owner exits leaves the bus, and
   # that is the unplug at every ignition edge this arrangement removes
