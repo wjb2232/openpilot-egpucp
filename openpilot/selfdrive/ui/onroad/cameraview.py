@@ -198,6 +198,9 @@ class CameraView(Widget):
     elif not self.client.is_connected():
       # ensure we clear the displayed frame when the connection is lost
       self.frame = None
+    elif not self.client.is_connected():
+      # ensure we clear the displayed frame when the connection is lost
+      self.frame = None
 
     if not self.frame:
       self._draw_placeholder(rect)

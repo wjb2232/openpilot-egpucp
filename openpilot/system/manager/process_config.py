@@ -269,6 +269,9 @@ procs = [
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   PythonProcess("modeld", "openpilot.selfdrive.modeld.modeld", and_(or_(only_onroad, onroad_preview), is_stock_model)),
+  # 内参/外参自进化(webcam 开发模式):消失点约束估计每镜头 f + pitch_offset,
+  # 写 Params CamCalibRoad/CamCalibWide, modeld 读取覆盖出厂内参。
+  PythonProcess("intrinsic_calibd", "openpilot.selfdrive.carrot.intrinsic_calibd", only_onroad, enabled=WEBCAM),
   # Signal-light colour observation (camera comparison only, never control).
   PythonProcess("signalcolord", "openpilot.selfdrive.modeld.signal_color_shadow", signal_color_observer, restart_if_crash=True),
   PythonProcess("dmonitoringmodeld", "openpilot.selfdrive.modeld.dmonitoringmodeld", dm_process, enabled=(WEBCAM or not PC) and not LITE),

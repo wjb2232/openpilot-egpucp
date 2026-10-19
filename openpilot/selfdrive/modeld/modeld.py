@@ -33,6 +33,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, 
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.compile_modeld import make_input_queues, nv12_copy_size, MODELD_INPUTS
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache, compose_camera_euler
 from openpilot.common.file_chunker import open_file_chunked, get_manifest_path
 from openpilot.common.hardware.usb import CHESTNUT_USB_IDS
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
@@ -264,25 +265,53 @@ def main(demo=False):
   # ABI): the uv/Clang venv python crashes executing TRT C++ exceptions across
   # ABIs. Restart ourselves under /usr/bin/python3 with the venv site-packages
   # and the system dist-packages on PYTHONPATH.
-  def trt_plan_path() -> str:
+  def trt_plan_path(chestnut: bool) -> str:
     try:
-      base = modeld_pkl_path(chestnut=True)
-      plan = base.with_name(base.name.replace('big_driving_tinygrad.pkl', 'big_driving_supercombo_trt.plan'))
+      # explicit names — replace() on the pkl name mangles the prefix
+      # (big_driving_tinygrad.pkl -> big_big_driving... or supercombo_trt.plan)
+      name = 'big_driving_supercombo_trt.plan' if chestnut else 'driving_supercombo_trt.plan'
+      plan = modeld_pkl_path(chestnut).with_name(name)
       return str(plan) if Path(plan).is_file() else ''
     except Exception:
       return ''
 
-  trt_plan = trt_plan_path()
-  if trt_plan and 'MODELD_SYSPY' not in os.environ and sys.executable != '/usr/bin/python3':
+  trt_plan = trt_plan_path(chestnut=True)
+  trt_plan_small = trt_plan_path(chestnut=False)
+  if (trt_plan or trt_plan_small) and 'MODELD_SYSPY' not in os.environ and sys.executable != '/usr/bin/python3':
     from openpilot.common.basedir import BASEDIR
-    venv_sp = str(Path(BASEDIR).parent / '.venv' / 'lib' / 'python3.12' / 'site-packages')
+    # BASEDIR IS the repo root here (/data/openpilot_c3); the .venv sits
+    # directly under it, NOT under BASEDIR.parent.
+    venv_sp = str(Path(BASEDIR) / '.venv' / 'lib' / 'python3.12' / 'site-packages')
     user_sp = str(Path.home() / '.local' / 'lib' / 'python3.12' / 'site-packages')
     sysdist = '/usr/lib/python3.12/dist-packages'
     cur_pypath = os.environ.get('PYTHONPATH', '')
-    os.environ['PYTHONPATH'] = ':'.join(x for x in (sysdist, user_sp, venv_sp, cur_pypath) if x and Path(x).is_dir())
+    # CRITICAL: the uv interpreter exports PYTHONHOME pointing at its own
+    # prefix.  After execv('/usr/bin/python3') the system python still reads
+    # PYTHONHOME and loads stdlib/ctypes from the uv dirs -> ModuleNotFoundError
+    # _ctypes.  Unset it so the system interpreter uses its own stdlib.
+    os.environ.pop('PYTHONHOME', None)
+    os.environ.pop('VIRTUAL_ENV', None)
+    # cur_pypath is itself colon-separated ('/data/openpilot_c3:/data/.pydeps');
+    # Path().is_dir() on the whole blob would filter it ALL out. Keep it raw.
+    curated = ':'.join(x for x in (sysdist, user_sp, venv_sp) if x and Path(x).is_dir())
+    os.environ['PYTHONPATH'] = curated + (':' + cur_pypath if cur_pypath else '')
     os.environ['MODELD_SYSPY'] = '1'
+    # debug: dump env before execv
+    try:
+        with open('/tmp/modeld_execv_env.txt', 'w') as _f:
+            _f.write('PYTHONPATH=' + os.environ.get('PYTHONPATH', '') + '\n')
+            _f.write('PYTHONHOME=' + os.environ.get('PYTHONHOME', '') + '\n')
+            _f.write('VIRTUAL_ENV=' + os.environ.get('VIRTUAL_ENV', '') + '\n')
+            _f.write('PYTHONNOUSERSITE=' + os.environ.get('PYTHONNOUSERSITE', '') + '\n')
+            _f.write('cwd=' + os.getcwd() + '\n')
+    except Exception:
+        pass
     cloudlog.warning("modeld: TRT plan found, restarting under system python3")
-    os.execv('/usr/bin/python3', ['python3', '-m', 'openpilot.selfdrive.modeld.modeld'])
+    # execv with absolute path for BOTH args: argv[0]='python3' lets the new
+    # interpreter re-resolve via PATH (which has .venv/bin first -> uv shim,
+    # -> VIRTUAL_ENV/PYTHONHOME confusion). /usr/bin/python3.12 is the real
+    # GCC system interpreter with _ctypes + CUDA libs.
+    os.execv('/usr/bin/python3.12', ['/usr/bin/python3.12', '-m', 'openpilot.selfdrive.modeld.modeld'])
 
   # Local-device big model: the compiled big-model pkl is CUDA-bound and ready
   # on this host's own GPU, so it can run without a USB chestnut accelerator.
@@ -374,7 +403,18 @@ def main(demo=False):
     if model is not None:
       params.remove("ChestnutModelError")
 
-  small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False) if model is None or CHESTNUT else None
+  small_model = None
+  if model is None or CHESTNUT:
+    try:
+      if trt_plan_small:
+        from openpilot.selfdrive.modeld.trt_model_state import TrtModelState
+        small_model = TrtModelState(vipc_client_main.width, vipc_client_main.height, False, trt_plan_small)
+      else:
+        small_model = ModelState(vipc_client_main.width, vipc_client_main.height, False)
+      small_model.warmup()
+    except Exception:
+      cloudlog.exception("small model load failed")
+      small_model = None
   if model is None:
     model = small_model
   if (joined := jetlink_adapter.attach(small_model, vipc_client_main.width, vipc_client_main.height)) is not None:
@@ -392,6 +432,7 @@ def main(demo=False):
 
   publish_state = PublishState()
   params = Params()
+  camera_calibration_cache = CalibrationCache()
   chestnut_state = ChestnutState(pm, model.chestnut) if CHESTNUT else None
 
   # setup filter to track dropped frames
@@ -464,11 +505,46 @@ def main(demo=False):
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
       dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
-      main_intrinsics = dc.wide_road.intrinsics if main_wide_camera else dc.narrow_road.intrinsics
-      model_transform_main = get_warp_matrix(device_from_calib_euler, main_intrinsics, False).astype(np.float32)
+      # 内参/外参自进化(intrinsic_calibd):CamCalibRoad/Wide 的 f 覆盖出厂内参,
+      # pitch_offset 叠加到外参。CamCalib 未收敛/未写入时退回出厂默认。
+      cam_calib = camera_calibration_cache.resolve(params, dc, time.monotonic())
+      road_intrinsics = dc.narrow_road.intrinsics.copy()
+      road_intrinsics[0, 0] = road_intrinsics[1, 1] = cam_calib.road.focal_length
+      wide_intrinsics = dc.wide_road.intrinsics.copy()
+      wide_intrinsics[0, 0] = wide_intrinsics[1, 1] = cam_calib.wide.focal_length
+      road_euler = compose_camera_euler(device_from_calib_euler, None, cam_calib.road.pitch_offset)
+      wide_euler = compose_camera_euler(device_from_calib_euler,
+                                        np.array(sm["extrinsicsCalibration"].wideFromDeviceEuler, dtype=np.float32),
+                                        cam_calib.wide.pitch_offset)
+      if main_wide_camera:
+        main_intrinsics = wide_intrinsics
+        main_euler = wide_euler
+      else:
+        main_intrinsics = road_intrinsics
+        main_euler = road_euler
+      # Webcam/bench: stock intrinsics assume the tici sensor size (1928x1208).
+      # A USB webcam stream can differ (e.g. 1344x760); using stock intrinsics
+      # directly warps the image so the road surface is pushed out of the model
+      # input -> nearly-straight low-confidence path that barely reacts. Scale
+      # the intrinsics to the actual stream resolution when the sensor is the
+      # webcam placeholder ('unknown') and no converged CamCalib override exists.
+      if str(sm['narrowRoadCameraState'].sensor) == 'unknown' and vipc_client_main.width > 0           and cam_calib.road.source == "prior":
+        sx = vipc_client_main.width / 1928.0
+        sy = vipc_client_main.height / 1208.0
+        main_intrinsics = main_intrinsics.copy()
+        main_intrinsics[0, 0] *= sx
+        main_intrinsics[1, 1] *= sy
+        main_intrinsics[0, 2] *= sx
+        main_intrinsics[1, 2] *= sy
+      model_transform_main = get_warp_matrix(main_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
-      extra_intrinsics = dc.wide_road.intrinsics if has_wide_camera else dc.narrow_road.intrinsics
-      model_transform_extra = get_warp_matrix(device_from_calib_euler, extra_intrinsics, True).astype(np.float32)
+      if has_wide_camera:
+        extra_intrinsics = wide_intrinsics
+        extra_euler = wide_euler
+      else:
+        extra_intrinsics = road_intrinsics
+        extra_euler = road_euler
+      model_transform_extra = get_warp_matrix(extra_euler, extra_intrinsics, True).astype(np.float32)
       extrinsics_calibration_seen = True
 
     traffic_convention = np.zeros(2)

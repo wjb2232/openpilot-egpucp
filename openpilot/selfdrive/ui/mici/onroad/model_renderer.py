@@ -149,10 +149,16 @@ class ModelRenderer(Widget, ModelRendererSP):
         self._update_leads(radar_state, path_x_array)
       self._transform_dirty = False
 
-    # Draw elements (hide when disengaged)
-    if ui_state.status != UIStatus.DISENGAGED:
-      self._draw_lane_lines()
-      self._draw_path(sm)
+    # Draw elements: also when disengaged, show gray preview (stock openpilot
+    # behavior) so the model's output is visible on the bench/standstill.
+    self._draw_lane_lines()
+    self._draw_path(sm)
+    _dc = getattr(self, '_dbg_c', 0) + 1
+    self._dbg_c = _dc
+    if _dc % 30 == 1:
+      with open('/tmp/ui_render.log', 'a') as _f:
+        _f.write(f"[R{_dc}] status={ui_state.status} pathpts={self._path.projected_points.size} lanepts={self._lane_lines[0].projected_points.size}\n")
+
 
     if render_lead_indicator and radar_state:
       self._draw_lead_indicator()
@@ -313,7 +319,7 @@ class ModelRenderer(Widget, ModelRendererSP):
       color = rl.Color(255, 255, 255, int(alpha * 255))
 
     if ui_state.status == UIStatus.DISENGAGED:
-      color = rl.Color(0, 0, 0, int(alpha * 255))
+      color = rl.Color(190, 190, 190, int(alpha * 255))
 
     return color
 
@@ -353,7 +359,7 @@ class ModelRenderer(Widget, ModelRendererSP):
     if self._experimental_mode:
       # Draw with acceleration coloring
       if ui_state.status == UIStatus.DISENGAGED:
-        draw_polygon(self._rect, path_pts, rl.Color(0, 0, 0, 90))
+        draw_polygon(self._rect, path_pts, rl.Color(190, 190, 190, 110))
       elif len(self._exp_gradient.colors) > 1:
         draw_polygon(self._rect, path_pts, gradient=self._exp_gradient)
       else:
@@ -370,7 +376,7 @@ class ModelRenderer(Widget, ModelRendererSP):
       )
 
       if ui_state.status == UIStatus.DISENGAGED:
-        draw_polygon(self._rect, path_pts, rl.Color(0, 0, 0, 90))
+        draw_polygon(self._rect, path_pts, rl.Color(190, 190, 190, 110))
       else:
         draw_polygon(self._rect, path_pts, gradient=gradient)
 

@@ -74,16 +74,27 @@ class TrtModelState:
     mw, mh = 512, 256
     y = frame_buf[:stride * y_h].reshape(y_h, stride)
     uv = frame_buf[stride * y_h:].reshape(self.uv_h, stride)
-    M_uv = M * np.array([[1.0, 1.0, 0.5], [1.0, 1.0, 0.5], [2.0, 2.0, 1.0]], dtype=np.float32)
-    yw = cv2.warpPerspective(y[:H, :W], M, (mw, mh), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    # get_warp_matrix returns OUTPUT->INPUT (model->camera) mapping;
+    # cv2.warpPerspective needs INPUT->OUTPUT (dst->src), so invert it.
+    # (Upstream tinygrad warp_perspective_tinygrad takes M_inv explicitly.
+    #  Using M directly makes every warp sample land outside the frame -> black
+    #  -> model sees black frames -> neutral outputs -> no path/lanes in UI.)
+    # Guard: before extrinsics arrive the matrix is all-zero -> singular; in
+    # that case skip warp entirely (black frames, matches the zero transform).
+    if np.count_nonzero(M) == 0:
+      return np.zeros((6, 128, 256), dtype=np.float32)
+    M_inv = np.linalg.inv(M)
+    M_uv = M_inv * np.array([[1.0, 1.0, 0.5], [1.0, 1.0, 0.5], [2.0, 2.0, 1.0]], dtype=np.float32)
+    yw = cv2.warpPerspective(y[:H, :W], M_inv, (mw, mh), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     uw = cv2.warpPerspective(uv[:self.y_h // 2, :W:2], M_uv, (mw // 2, mh // 2), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     vw = cv2.warpPerspective(uv[:self.y_h // 2, 1:W:2], M_uv, (mw // 2, mh // 2), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     yuv = np.concatenate([yw.reshape(-1), uw.reshape(-1), vw.reshape(-1)]).reshape(mh * 3 // 2, mw)
     Hh, Ww = mh // 2, mw // 2
-    return np.stack([
+    _ret = np.stack([
       yuv[0:mh:2, 0::2], yuv[1:mh:2, 0::2], yuv[0:mh:2, 1::2], yuv[1:mh:2, 1::2],
       yuv[mh:mh + mh // 4].reshape(Hh, Ww), yuv[mh + mh // 4:mh + mh // 2].reshape(Hh, Ww),
     ])
+    return _ret
 
   def _sample_skip(self, buf):
     return buf[::self.frame_skip].reshape(1, -1)
@@ -106,6 +117,10 @@ class TrtModelState:
     # warp + queues
     w1 = self._warp(frame_buf, tfm)
     w2 = self._warp(big_frame_buf, big_tfm)
+    if getattr(self, '_dbg_n', 0) <= 5 or getattr(self, '_dbg_n', 0) % 60 == 1:
+      with open('/tmp/md_dbg_f.log', 'a') as _f:
+        _f.write(f"[f{getattr(self, '_dbg_n', 0)}] w1m={float(w1.mean()):.2f} w1nz={int((w1 != 0).sum())} w2m={float(w2.mean()):.2f}\n")
+    self._dbg_n = getattr(self, '_dbg_n', 0) + 1
     self.img_q[:-1] = self.img_q[1:]
     self.img_q[-1] = w1
     self.big_q[:-1] = self.big_q[1:]
@@ -124,6 +139,10 @@ class TrtModelState:
       'action_t': inputs['action_t'].reshape(1, 2).astype(self.model_dtypes['action_t']),
     }
     model_output = self.trt.run_np(trt_inputs)  # (18452,)
+    if getattr(self, '_dbg_n', 0) <= 6 or getattr(self, '_dbg_n', 0) % 60 == 1:
+      with open('/tmp/md_dbg_f.log', 'a') as _f:
+        _f.write(f"[f{getattr(self, '_dbg_n', 0)}] outnz={int((model_output != 0).sum())} outinf={int(np.isinf(model_output).sum())}\n")
+
     if after_enqueue is not None:
       after_enqueue()
     if self.chestnut and not np.all(np.isfinite(model_output)):
@@ -135,14 +154,18 @@ class TrtModelState:
     return outputs_dict
 
   def warmup(self) -> None:
-    dummy_frames = {k: np.zeros(self.frame_copy_size, dtype=np.uint8) for k in self.vision_input_names}
+    # Random frames (not zeros!): the driving model on all-zero input outputs
+    # inf/NaN in hidden_state (exp/div), and prev_feat is fed back as
+    # features_buffer -> permanent inf pollution -> neutral outputs -> no path.
+    dummy_frames = {k: np.random.randint(0, 255, self.frame_copy_size, dtype=np.uint8) for k in self.vision_input_names}
     eye = np.eye(3, dtype=np.float32)
     dims = {'desire_pulse': ModelConstants.DESIRE_LEN, 'traffic_convention': 2, 'action_t': 2}
     self.run(dummy_frames, dict.fromkeys(self.vision_input_names, eye),
              {k: np.zeros(v, dtype=np.float32) for k, v in dims.items()})
-    # 重置队列
+    # 重置队列 + prev_feat (hidden_state feedback — must not carry inf)
     self.img_q[:] = 0
     self.big_q[:] = 0
     self.feat_q[:] = 0
     self.desire_q[:] = 0
     self.prev_desire[:] = 0
+    self.prev_feat[:] = 0

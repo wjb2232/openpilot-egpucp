@@ -235,6 +235,9 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ModelAutoAdopt_Ref", {PERSISTENT, STRING}},
     {"ModelAutoAdopt_Sha", {PERSISTENT, STRING}},
     {"ModelAutoAdopt_Status", {PERSISTENT | CLEAR_ON_MANAGER_START, STRING}},
+    {"ModelAutoAdopt_SmallRef", {PERSISTENT, STRING}},
+    {"ModelAutoAdopt_SmallSha", {PERSISTENT, STRING}},
+    {"ModelAutoAdopt_SmallStatus", {PERSISTENT | CLEAR_ON_MANAGER_START, STRING}},
     {"ModelManager_ActiveJson", {CLEAR_ON_MANAGER_START, JSON}},
     {"ModelManager_ClearCache", {CLEAR_ON_MANAGER_START, BOOL}},
     {"ModelManager_DownloadRef", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, STRING}},
@@ -755,4 +758,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"SoftwareMenu", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"SoundLanguageSetting", {PERSISTENT | BACKUP, STRING, "auto"}},
     {"UseWideCamera", {PERSISTENT | BACKUP, BOOL, "1"}},
+    {"CamCalibRoad", {PERSISTENT | BACKUP, BYTES, ""}},
+    {"CamCalibWide", {PERSISTENT | BACKUP, BYTES, ""}},
 };

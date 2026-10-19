@@ -15,7 +15,7 @@ from openpilot.system.ui.widgets import Widget
 from openpilot.selfdrive.ui.sunnypilot.onroad.model_renderer import ChevronMetrics, ModelRendererSP
 
 CLIP_MARGIN = 500
-MIN_DRAW_DISTANCE = 10.0
+MIN_DRAW_DISTANCE = 15.0
 MAX_DRAW_DISTANCE = 100.0
 
 THROTTLE_COLORS = [
@@ -147,6 +147,36 @@ class ModelRenderer(Widget, ChevronMetrics, ModelRendererSP):
     for i, lane_line in enumerate(model.laneLines):
       self._lane_lines[i].raw_points = np.array([lane_line.x, np.array(lane_line.y) + self._camera_offset, lane_line.z], dtype=np.float32).T
 
+    # At standstill/indoor test scenes the planner path can end before the
+    # camera projection becomes visible (position.x < ~4 m). Keep the actual
+    # model path untouched in normal operation; only for this short-path case
+    # extend its centerline over the lane-line distance grid so the UI still
+    # shows a visible preview instead of an apparently empty road.
+    if self._path.raw_points.shape[0] > 1 and self._path.raw_points[-1, 0] < MIN_DRAW_DISTANCE:
+      ref = next((l.raw_points for l in self._lane_lines if l.raw_points.shape[0] > 1), None)
+      if ref is not None:
+        rp = self._path.raw_points
+        x_ref = ref[:, 0]
+        tail = rp[rp[:, 0] > 0.0]
+        if tail.shape[0] >= 2:
+          # extrapolate along the heading implied by the last two valid samples
+          x_t, y_t, z_t = tail[-1, 0], tail[-1, 1], tail[-1, 2]
+          dx = tail[-1, 0] - tail[-2, 0]
+          dy = tail[-1, 1] - tail[-2, 1]
+          dz = tail[-1, 2] - tail[-2, 2]
+          if dx > 1e-4:
+            slope_y = dy / dx
+            slope_z = dz / dx
+            y_ext = y_t + slope_y * (x_ref - x_t)
+            z_ext = z_t + slope_z * (x_ref - x_t)
+          else:
+            y_ext = np.full_like(x_ref, y_t)
+            z_ext = np.full_like(x_ref, z_t)
+        else:
+          y_ext = np.full_like(x_ref, rp[-1, 1])
+          z_ext = np.full_like(x_ref, rp[-1, 2])
+        self._path.raw_points = np.column_stack((x_ref, y_ext, z_ext)).astype(np.float32)
+
     for i, road_edge in enumerate(model.roadEdges):
       self._road_edges[i].raw_points = np.array([road_edge.x, np.array(road_edge.y) + self._camera_offset, road_edge.z], dtype=np.float32).T
 
@@ -173,6 +203,11 @@ class ModelRenderer(Widget, ChevronMetrics, ModelRendererSP):
   def _update_model(self, lead, path_x_array):
     """Update model visualization data based on model message"""
     max_distance = np.clip(path_x_array[-1], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
+    # 路径可能很短(低速/室内),但车道线感知距离可能长得多——用两者较大值,
+    # 否则车道线被截断到 15m 内,投影全部掉出屏幕(近距离点 y 巨大)。
+    lane_max_x = max((l.raw_points[-1, 0] for l in self._lane_lines if l.raw_points.size), default=0.0)
+    path_max_x = float(path_x_array[-1]) if path_x_array.size else 0.0
+    max_distance = float(max(max_distance, min(lane_max_x, MAX_DRAW_DISTANCE)))
     max_idx = self._get_path_length_idx(self._lane_lines[0].raw_points[:, 0], max_distance)
 
     # Update lane lines using raw points

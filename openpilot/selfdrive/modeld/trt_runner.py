@@ -29,6 +29,13 @@ class TrtRunner:
     self.cudart.cudaFree.restype = ctypes.c_int
     self.cudart.cudaMemcpy.restype = ctypes.c_int
     self.cudart.cudaDeviceSynchronize.restype = ctypes.c_int
+    # CRITICAL: without argtypes, ctypes converts Python int args to 32-bit
+    # c_int — a host pointer like 0xffff9ade04d20 truncates to 0xade04d20 and
+    # memcpy SIGSEGVs in cudaMemcpy during warmup. Declare all signatures.
+    self.cudart.cudaMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+    self.cudart.cudaFree.argtypes = [ctypes.c_void_p]
+    self.cudart.cudaMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    self.cudart.cudaDeviceSynchronize.argtypes = []
     self.drv = ctypes.CDLL('/usr/lib/aarch64-linux-gnu/libcuda.so')
     self.drv.cuInit.restype = ctypes.c_int
     self.drv.cuCtxCreate_v2.restype = ctypes.c_int
@@ -37,13 +44,23 @@ class TrtRunner:
     self.drv.cuCtxCreate_v2.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int]
     self.drv.cuCtxPushCurrent_v2.argtypes = [ctypes.c_void_p]
 
-    # 自建 context(隔离 tinygrad)
-    self.drv.cuInit(0)
+    # 自建 context(隔离 tinygrad)。
+    # NOTE: 不能用 assert 检查返回码!manager 以 PYTHONOPTIMIZE=1 运行,
+    # assert 全被剥离后 CUDA 错误被静默吞掉(dev=None, 输出全 0, 无轨迹)。
+    # 显式检查 + 抛异常,任何模式都生效。
+    def cuda_check(rc: int, what: str) -> None:
+      if rc != 0:
+        raise RuntimeError(f"CUDA {what} failed rc={rc}")
+
+    cuda_check(self.drv.cuInit(0), "cuInit")
     self.cu_ctx = ctypes.c_void_p()
-    assert self.drv.cuCtxCreate_v2(ctypes.byref(self.cu_ctx), 0, 0) == 0
+    cuda_check(self.drv.cuCtxCreate_v2(ctypes.byref(self.cu_ctx), 0, 0), "cuCtxCreate_v2")
+    if not self.cu_ctx.value:
+      raise RuntimeError("cuCtxCreate_v2 returned NULL context")
+    cuda_check(self.drv.cuCtxPushCurrent_v2(self.cu_ctx), "cuCtxPushCurrent_v2")
 
     # IO layout
-    dtype_map = {trt.DataType.FLOAT: np.float32, trt.DataType.HALF: np.float16}
+    dtype_map = {trt.DataType.FLOAT: np.float32, trt.DataType.HALF: np.float16, trt.DataType.UINT8: np.uint8}
     self.io = {}
     self.input_names = []
     self.output_name = None
@@ -64,15 +81,21 @@ class TrtRunner:
                              dtype=self.io[self.output_name]['npdt'])
 
   def _push(self):
-    assert self.drv.cuCtxPushCurrent_v2(self.cu_ctx) == 0
+    rc = self.drv.cuCtxPushCurrent_v2(self.cu_ctx)
+    if rc != 0:
+      raise RuntimeError(f"cuCtxPushCurrent_v2 rc={rc}")
 
   def _pop(self):
     ctx = ctypes.c_void_p()
-    assert self.drv.cuCtxPopCurrent_v2(ctypes.byref(ctx)) == 0
+    rc = self.drv.cuCtxPopCurrent_v2(ctypes.byref(ctx))
+    if rc != 0:
+      raise RuntimeError(f"cuCtxPopCurrent_v2 rc={rc}")
 
   def _cuda_malloc(self, nbytes: int) -> int:
     ptr = ctypes.c_void_p()
-    assert self.cudart.cudaMalloc(ctypes.byref(ptr), nbytes) == 0
+    rc = self.cudart.cudaMalloc(ctypes.byref(ptr), nbytes)
+    if rc != 0 or not ptr.value:
+      raise RuntimeError(f"cudaMalloc rc={rc} size={nbytes}")
     return ptr.value
 
   def run_np(self, inputs: dict[str, np.ndarray]) -> np.ndarray:
@@ -80,14 +103,20 @@ class TrtRunner:
     try:
       for n in self.input_names:
         arr = inputs[n]
-        assert arr.dtype == self.io[n]['npdt'], f'{n}: want {self.io[n]["npdt"]}, got {arr.dtype}'
+        if arr.dtype != self.io[n]['npdt']:
+          raise TypeError(f'{n}: want {self.io[n]["npdt"]}, got {arr.dtype}')
         arr = np.ascontiguousarray(arr).ravel()
-        assert self.cudart.cudaMemcpy(ctypes.c_void_p(self.io[n]['dev']),
-                                      arr.ctypes.data, arr.nbytes, 1) == 0  # H2D
-      assert self.ctx.execute_v2(self.bindings)
-      assert self.cudart.cudaMemcpy(self.out_host.ctypes.data,
-                                    ctypes.c_void_p(self.io[self.output_name]['dev']),
-                                    self.out_host.nbytes, 2) == 0  # D2H
+        rc = self.cudart.cudaMemcpy(ctypes.c_void_p(self.io[n]['dev']),
+                                    arr.ctypes.data, arr.nbytes, 1)  # H2D
+        if rc != 0:
+          raise RuntimeError(f"cudaMemcpy H2D {n} rc={rc}")
+      if not self.ctx.execute_v2(self.bindings):
+        raise RuntimeError("TRT execute_v2 returned False")
+      rc = self.cudart.cudaMemcpy(self.out_host.ctypes.data,
+                                  ctypes.c_void_p(self.io[self.output_name]['dev']),
+                                  self.out_host.nbytes, 2)  # D2H
+      if rc != 0:
+        raise RuntimeError(f"cudaMemcpy D2H rc={rc}")
       return self.out_host.copy()
     finally:
       self._pop()
