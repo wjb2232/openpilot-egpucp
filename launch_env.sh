@@ -36,3 +36,15 @@ export ROAD_CAM=0
 export WIDE_CAM=1
 export CAM_WIDTH=1344
 export CAM_HEIGHT=760
+
+# --- c3 UI scaling for 132 touch panel (1024x600) ---
+# canvas 2160x1080 x 0.474 = 1024x512; fonts hardcoded for 2160
+export BIG=1
+export SCALE=0.474
+export UI_WIDTH=2160
+export UI_HEIGHT=1080
+# X display for the UI process (gnome session on :0); tmux/ssh-launched stacks
+# inherit neither DISPLAY nor XAUTHORITY, leaving UI windowless & spin-locked
+export DISPLAY=:0
+export XAUTHORITY=/run/user/1000/gdm/Xauthority
+export UNDECORATED=1
