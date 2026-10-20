@@ -424,6 +424,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"BlindDecSpeedEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     {"BlindDecSpeedOffset", {PERSISTENT | BACKUP, INT, "15"}},  // km/h
     {"BlindDecSafeTime", {PERSISTENT | BACKUP, INT, "3"}},  // s
+    // 隧道减速(APK cbTunnelDecSpeed 同参): roadcate==24(隧道段)时限速到
+    // TunnelDecSpeedKmh, 出隧道后维持 TunnelDecKeepTime 秒再恢复。默认关。
+    {"TunnelDecSpeedEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    {"TunnelDecSpeedKmh", {PERSISTENT | BACKUP, INT, "80"}},  // km/h
+    {"TunnelDecKeepTime", {PERSISTENT | BACKUP, INT, "5"}},  // s
     // DrivingMode enum (carrot_functions.py): 1=Eco, 2=Safe, 3=Normal, 4=High.
     // The comment here used to read "0=eco,1=normal,2=sport,3=safe", which matches
     // nothing in the enum, and the default was "1" on that mistaken reading - so the
