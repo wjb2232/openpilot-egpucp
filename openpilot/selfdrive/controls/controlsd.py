@@ -164,6 +164,18 @@ class Controls(ControlsExt):
       new_desired_curvature = self.sm['lateralManeuverPlan'].desiredCurvature if CC.latActive else self.curvature
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
+    # Stage-2 avoidance curve (c3): overlay carrot's in-lane swerve curvature so
+    # the car steers around a stopped obstacle without changing lanes. Latched to
+    # self.curvature's sign by clip_curvature below; reset whenever the curve is
+    # not active (avoidCurvature == 0) so a stale overlay can't persist.
+    #
+    # Coordinate sign: openpilot desiredCurvature is left-positive (positive =
+    # turn left, car frame y left = +). AvoidanceCurve works in y-right-positive
+    # (its offset_now is "右正左负"), so the overlay MUST be negated here.
+    if self.sm.valid.get('carrotManSP', False):
+      avoid_curv = float(self.sm['carrotManSP'].avoidCurvature)
+      if avoid_curv != 0.0 and CC.latActive:
+        new_desired_curvature -= avoid_curv
     lat_jerk_factor = self.lane_change_jerk_factor(self.sm, CC.latActive, new_desired_curvature, self.desired_curvature)
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll, lat_jerk_factor)
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS

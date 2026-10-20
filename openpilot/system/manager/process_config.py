@@ -403,7 +403,12 @@ procs += [
   # hardware (AGNOS exposes the evdev nodes), and the old gate on CarrotEnabled
   # meant a unit with the master switch off could not pair its remote. This fork
   # has no `TICI` symbol - `COMMA_HARDWARE` (AGNOS present) is its equivalent.
-  PythonProcess("carrot_bluetooth", "openpilot.sunnypilot.carrot.bluetooth.daemon", always_run, enabled=COMMA_HARDWARE, restart_if_crash=True),
+  # NOTE: 放宽门控。本部署跑在 AGX Orin (tegra-ubuntu, 非 AGNOS), 蓝牙 HID
+  # 遥控器(Yiser J6)实际可用, COMMA_HARDWARE 门控会误杀 daemon 导致
+  # UI 蓝牙面板 runtime.alive=false、遥控器命令全部失效。
+  # daemon 本身是通用 evdev 实现(bustype 0005), 无设备时静默空转,
+  # 权限用 sudo -n chgrp gpio (nvidia 已在 gpio 组 + NOPASSWD)。
+  PythonProcess("carrot_bluetooth", "openpilot.sunnypilot.carrot.bluetooth.daemon", always_run, restart_if_crash=True),
 
   # locationd
   NativeProcess("locationd_llk", "openpilot/sunnypilot/selfdrive/locationd", ["./locationd"], only_onroad),
