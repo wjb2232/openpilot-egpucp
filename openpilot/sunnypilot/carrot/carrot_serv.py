@@ -183,6 +183,17 @@ class CarrotServ:
     self.blind_dec_speed_offset = 15   # km/h, 盲区有车时 v_ego - offset
     self.blind_safe_time = 3.0         # s, 盲区消失后维持减速的安全时间
     self._blind_dec_active_until = 0.0
+    # 隧道减速(APK cbTunnelDecSpeed 同参): roadcate==24(Tunnel section)时减速。
+    self.tunnel_dec_speed_enabled = False
+    self.tunnel_dec_speed_kmh = 80       # km/h, 隧道内目标速度
+    self.tunnel_dec_keep_time = 5.0      # s, 出隧道后维持减速的时间
+    self._tunnel_dec_until = 0.0
+    # 推荐车道变道暂停(APK 语义): 行驶在推荐车道超过阈值 -> 暂停自动变道;
+    # 导航车道/引导变化 -> 恢复。依赖 navLaneGuide 变化。
+    self.recommended_lane_pause_time = 5.0   # s, 推荐车道内行驶超时即暂停
+    self._rec_lane_since = 0.0               # 进入推荐车道的时间戳
+    self._rec_lane_guide_last = ""           # 上次 navLaneGuide 值
+    self._rec_lane_paused = False            # 暂停状态
 
     # Cached navi state.
     self._raw: dict[str, object] = {}
@@ -1022,6 +1033,10 @@ class CarrotServ:
     self.blind_dec_speed_enabled = p.get_bool("BlindDecSpeedEnabled", False)
     self.blind_dec_speed_offset = int(min(60, max(5, p.get_int("BlindDecSpeedOffset", 15))))
     self.blind_safe_time = float(min(10, max(1, p.get_int("BlindDecSafeTime", 3))))
+    # 隧道减速(APK cbTunnelDecSpeed 同参)
+    self.tunnel_dec_speed_enabled = p.get_bool("TunnelDecSpeedEnabled", False)
+    self.tunnel_dec_speed_kmh = int(min(120, max(30, p.get_int("TunnelDecSpeedKmh", 80))))
+    self.tunnel_dec_keep_time = float(min(30, max(1, p.get_int("TunnelDecKeepTime", 5))))
     self.same_spi_cam_filter = p.get_bool("SameSpiCamFilter", True)
     self.is_metric = p.get_bool("IsMetric", True)
 
@@ -1706,6 +1721,32 @@ class CarrotServ:
     side-rear safety in the avoidance stage."""
     self._sd = sd
 
+  def _update_recommended_lane_pause(self) -> bool:
+    """推荐车道变道暂停状态机(APK 语义)。
+
+    导航引导 navLaneGuide 表示当前该走的车道。车辆已行驶在推荐车道且引导
+    长时间(>recommended_lane_pause_time)不变 -> 暂停主动换道/超车, 避免
+    无谓变道; 引导变化/清空 -> 立即恢复。
+    """
+    guide = _safe_str(self._raw.get("navLaneGuide"), "")
+    now = time.monotonic()
+    if guide and guide != self._rec_lane_guide_last:
+      # 引导变化: 重置计时并恢复
+      self._rec_lane_guide_last = guide
+      self._rec_lane_since = now
+      self._rec_lane_paused = False
+    elif not guide:
+      # 无引导: 恢复
+      self._rec_lane_guide_last = ""
+      self._rec_lane_since = 0.0
+      self._rec_lane_paused = False
+    elif self._rec_lane_guide_last == guide:
+      if self._rec_lane_since == 0.0:
+        self._rec_lane_since = now
+      elif now - self._rec_lane_since >= self.recommended_lane_pause_time:
+        self._rec_lane_paused = True
+    return self._rec_lane_paused
+
   def update_navi(self, remote_ip: str, sm, pm, vturn_speed: float,
                   coords: list, distances: list, route_speed: float,
                   vturn_dist: float = 0.0) -> None:
@@ -1911,6 +1952,11 @@ class CarrotServ:
     # desire_helper 消费命令打灯,模型执行换道。
     avoid_active = False
     try:
+      # 推荐车道变道暂停(APK 语义): 导航引导(navLaneGuide)长时间不变且车辆
+      # 已在推荐车道 -> 暂停主动换道/超车,避免无谓变道;引导变化即恢复。
+      rec_lane_paused = self._update_recommended_lane_pause()
+      if rec_lane_paused:
+        self.debug_text = getattr(self, "debug_text", "") + "REC÷ "
       if self._params.get_bool("AvoidanceEnabled", False) and sm.alive.get("radarState", False):
         # 超车档位(1=激进/2=常规/3=保守), APK OvertakeSettingActivity 同参
         self.obstacle_avoidance.set_overtake_mode(self._params.get_int("OverTakeMode", 2))
@@ -1969,7 +2015,7 @@ class CarrotServ:
         lc_dir = self.obstacle_avoidance.lane_change_request(
           v_ego_kph_avoid,
           left_blocked=left_blocked, right_blocked=right_blocked,
-          lane_change_active=_lc_active,
+          lane_change_active=_lc_active or rec_lane_paused,
         )
         if lc_dir is not None:
           self._raw["carrotCmd"] = "LANECHANGE"
@@ -1991,7 +2037,7 @@ class CarrotServ:
         ot_dir = self.obstacle_avoidance.overtake_request(
           v_ego_kph_avoid, v_lead_kph,
           left_blocked=left_blocked, right_blocked=right_blocked,
-          lane_change_active=_lc_active,
+          lane_change_active=_lc_active or rec_lane_paused,
         )
         if ot_dir is not None:
           self._raw["carrotCmd"] = "OVERTAKE"
@@ -2031,6 +2077,21 @@ class CarrotServ:
           self.debug_text = getattr(self, "debug_text", "") + f"BL{self.blind_dec_speed_offset} "
     except Exception as e_blind:
       cloudlog.warning(f"carrot_serv: blind decel failed: {e_blind}")
+
+    # 隧道减速(APK cbTunnelDecSpeed 同参): roadcate==24(Tunnel section)时
+    # 限速到隧道目标速度, 出隧道后维持 tunnel_dec_keep_time 再恢复。
+    tunnel_active = False
+    try:
+      if self.tunnel_dec_speed_enabled:
+        now_t = time.monotonic()
+        if self.roadcate == 24:
+          self._tunnel_dec_until = now_t + self.tunnel_dec_keep_time
+        if now_t < self._tunnel_dec_until:
+          speed_n_sources.append((float(self.tunnel_dec_speed_kmh), "tunnel"))
+          tunnel_active = True
+          self.debug_text = getattr(self, "debug_text", "") + f"TL{self.tunnel_dec_speed_kmh} "
+    except Exception as e_tunnel:
+      cloudlog.warning(f"carrot_serv: tunnel decel failed: {e_tunnel}")
 
     desired_speed, source = min(speed_n_sources, key=lambda x: x[0])
 

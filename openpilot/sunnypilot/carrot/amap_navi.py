@@ -89,6 +89,12 @@ class SharedData:
   lidar_left: bool = False
   lidar_right: bool = False
 
+  # 车道线状态(APK LaneLine 手机端 ONNX 检测 -> left_lane/right_lane)。
+  left_lane: int | None = None     # 左侧车道类型码(APK selectLanes 结果)
+  right_lane: int | None = None    # 右侧车道类型码
+  lane_line_valid: bool = False    # 车道线检测有效(最近收到过 lane 数据)
+  lane_line_time: float = 0.0      # 最近一次 lane 数据时间戳(monotonic)
+
   # Radar lead data (4 corners).
   lf_drel: dict[str, float] = field(default_factory=dict)
   lb_drel: dict[str, float] = field(default_factory=dict)
@@ -887,6 +893,22 @@ class AmapNaviServ:
       if resp == "cam_blind":
         left_blind = json_obj.get("left_blind")
         right_blind = json_obj.get("right_blind")
+
+      if resp == "lane":
+        # APK LaneLine 手机端 ONNX 车道线检测结果(left_lane/right_lane 为
+        # selectLanes 车道类型码)。存入 shared_data 供 avoidance/UI 使用。
+        try:
+          sd_lane = self.shared_data
+          ll = json_obj.get("left_lane")
+          rl = json_obj.get("right_lane")
+          if ll is not None:
+            sd_lane.left_lane = int(ll)
+          if rl is not None:
+            sd_lane.right_lane = int(rl)
+          sd_lane.lane_line_valid = True
+          sd_lane.lane_line_time = time.monotonic()
+        except (TypeError, ValueError):
+          pass
 
       if resp == "blindspot":
         lidar_data = True
