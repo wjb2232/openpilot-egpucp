@@ -1903,6 +1903,8 @@ class CarrotServ:
     avoid_active = False
     try:
       if self._params.get_bool("AvoidanceEnabled", False) and sm.alive.get("radarState", False):
+        # 超车档位(1=激进/2=常规/3=保守), APK OvertakeSettingActivity 同参
+        self.obstacle_avoidance.set_overtake_mode(self._params.get_int("OverTakeMode", 2))
         rs_avoid = sm["radarState"]
         lead_one_avoid = rs_avoid.leadOne if rs_avoid.leadOne.present else None
         cs_avoid = sm["carState"] if sm.alive.get("carState", False) else None
