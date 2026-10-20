@@ -434,6 +434,15 @@ class CarrotServ:
           add_val = float(max_add) * (60 - raw_limit) / 20.0
         raw_limit = int(min(raw_limit + add_val, 60))
 
+    # 保存车端已生成的命令(避障 LC/OT、DISPLAY), 手机包无命令时保留:
+    # update_raw 每收一个手机包就整体重建 _raw, 若不保留, 避障线程写下的
+    # LANECHANGE/OVERTAKE 会在下一个手机包到达时被冲掉(重置为空串),
+    # carrotManSP 发布出去的就是空命令, desire_helper 永远收不到 -> 阶段3
+    # 换道/超车从未真正发出(实测行为: 只有限速生效, 轨迹"死板")。
+    _prev_cmd = _safe_str(self._raw.get("carrotCmd", ""))
+    _prev_arg = _safe_str(self._raw.get("carrotArg", ""))
+    _prev_idx = _safe_int(self._raw.get("carrotCmdIndex"), 0)
+
     self._raw = {
       "nRoadLimitSpeed": raw_limit,
       "nSdiType": _safe_int(msg.get("nSdiType"), -1),
@@ -504,6 +513,13 @@ class CarrotServ:
       self._raw["carrotCmdIndex"] = seq
       self._raw["carrotCmd"] = _safe_str(msg.get("carrotCmd"), "")
       self._raw["carrotArg"] = _safe_str(msg.get("carrotArg"), "")
+    else:
+      # 手机包未带命令: 恢复车端已生成的命令(避障 LC/OT / DISPLAY),
+      # 否则上面的整体重建已把它们重置为空串/seq, desire_helper 收不到。
+      # 车端命令的 index 单调递增, 手机包的 seq 只用于乱序保护(406 行)。
+      self._raw["carrotCmdIndex"] = _prev_idx
+      self._raw["carrotCmd"] = _prev_cmd
+      self._raw["carrotArg"] = _prev_arg
 
     # Phone GPS fallback fields (sent outside the main navi block).
     self._update_phone_gps_from_packet(msg)
