@@ -1061,6 +1061,9 @@ class CarrotManager:
     cm.routeSpeed = float(self._carrot_serv.route_speed)
     cm.routeDist = float(self._carrot_serv.route_speed_dist)
     cm.vTurnSpeed = v_turn_speed
+    # Stage-2 avoidance curve overlay for controlsd (rad/m). 0.0 = inactive.
+    cm.avoidCurvature = float(self._carrot_serv.avoid_curvature)
+    cm.avoidDist = float(self._carrot_serv.avoid_dist)
     cm.szPosRoadName = _safe_str(raw.get("szPosRoadName"), "")
     cm.szTBTMainText = _safe_str(raw.get("szTBTMainText"), "")
     cm.desiredSpeed = desired_speed

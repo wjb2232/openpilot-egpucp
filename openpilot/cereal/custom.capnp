@@ -978,6 +978,14 @@ struct CarrotManSP @0xcd96dafb67a082d0 {
   # Mapping lives in openpilot/sunnypilot/carrot/deceleration_source.py.
   desiredSourceLabel @73 :Text = "";
   desiredSourceColor @74 :Int32 = 0;
+  # Stage-2 avoidance curve (c3): signed curvature overlay (rad/m) for the
+  # in-lane obstacle swerve, published by carrot_man every cycle from
+  # ObstacleAvoidance/AvoidanceCurve. A nonzero value steers around a stopped
+  # obstacle without leaving the lane (|offset| <= 0.35 m); 0.0 = no curve.
+  # Consumed by controlsd when active.
+  avoidCurvature @76 :Float32 = 0.0;
+  # Stage-2 curve active distance (m, along-path), for controlsd's rate-limit.
+  avoidDist @77 :Float32 = 0.0;
 }
 
 struct ImuCalibrationSP @0xb057204d7deadf3f {
