@@ -45,6 +45,9 @@ HOLD_SEC = 1.2               # 保持段时长(绕过障碍身位)
 SIDE_SEC = 1.5               # 偏出/回中段时间基数(随速度: L = v*SIDE_SEC)
 MIN_SIDE_M = 12.0            # 偏出/回中段最小长度
 MAX_LAT_ACCEL_MPS2 = 0.5     # 避让横向加速度上限
+# 曲线完成冷却: 走完一条曲线(偏出->保持->回中)后, 即使障碍仍在触发区
+# 也至少等这么久再重触发, 防止同一障碍导致左右往复绕行(往复摆动)。
+CURVE_COOLDOWN_S = 4.0
 
 # ---- 阶段3 换道参数 ---------------------------------------------------- #
 LC_COOLDOWN_S = 8.0
@@ -231,8 +234,9 @@ class ObstacleAvoidance:
 
     left_clear = left_blocked is not True
     right_clear = right_blocked is not True
-    # 障碍反侧优先: 障碍偏右(y_rel>0) -> 左绕; 偏左 -> 右绕; 居中 -> 默认左绕(国内左超车)
-    prefer_left = self._last_y_rel > 0.0
+    # 障碍反侧优先: yRel 左正(log.capnp), y_rel>0=障碍在左 -> 右绕
+    # (离开障碍); 偏左/居中 -> 默认左绕(国内左超车, 靠右行驶)。
+    prefer_left = self._last_y_rel <= 0.0
     if prefer_left and left_clear:
       direction = "LEFT"
     elif (not prefer_left) and right_clear:
@@ -293,8 +297,9 @@ class ObstacleAvoidance:
 
     left_clear = left_blocked is not True
     right_clear = right_blocked is not True
-    # 档位偏好: prefer_left_first 优先左侧; 障碍反侧优先次之
-    prefer_left = p["prefer_left_first"] or self._last_y_rel > 0.0
+    # 档位偏好: prefer_left_first 优先左侧; 障碍反侧优先次之(yRel 左正,
+    # y_rel>0=障碍在左 -> 右绕; 偏左/居中 -> 左绕)。
+    prefer_left = p["prefer_left_first"] or self._last_y_rel <= 0.0
     if prefer_left and left_clear:
       direction = "LEFT"
     elif (not prefer_left) and right_clear and p["allow_right_overtake"]:
@@ -342,8 +347,11 @@ class AvoidanceCurve:
     self._direction = 1
     self._reason = ""
     self._last_kappa = 0.0
+    self._done_at = 0.0    # 最近一次曲线完成(或取消)时刻, 防往复重触发
 
-  def reset(self) -> None:
+  def reset(self, now: float | None = None) -> None:
+    if self._active:
+      self._done_at = now if now is not None else time.monotonic()
     self._active = False
     self._s = 0.0
     self._last_kappa = 0.0
@@ -357,6 +365,10 @@ class AvoidanceCurve:
 
     侧后安全(左/右)由调用方合成: lidar 盲区 + radarTracks 点云 +
     模型 laneChangeAvailable + 视觉行人。None 表示无信息。
+
+    yRel 为 car frame, 左正(log.capnp): y_rel>0 = 障碍在左 -> 右绕
+    (离开障碍); y_rel<0 = 障碍在右 -> 左绕; 居中 -> 默认左绕(左超车
+    习惯, 靠右行驶)。
     """
     md = None
     lav_l = lav_r = None
@@ -368,12 +380,12 @@ class AvoidanceCurve:
     except Exception:
       pass
 
-    # 障碍侧: y_rel>0 障碍在右 -> 倾向左绕
+    # 障碍侧: y_rel>0 障碍在左 -> 倾向右绕
     try:
       y_rel = float(lead.yRel) if lead is not None else 0.0
     except Exception:
       y_rel = 0.0
-    prefer_left = y_rel > 0.0
+    prefer_left = y_rel <= 0.0
 
     # 合成"该侧可绕": 无明确 blocked, 且模型未明确禁止
     left_ok = left_blocked is not True
@@ -400,6 +412,7 @@ class AvoidanceCurve:
     self._L3 = side
     self._L2 = max(6.0, v_ego * HOLD_SEC)
     self._O = MAX_OFFSET_M * direction
+    self._direction = direction
     self._s = 0.0
 
   def _kappa_at(self, s: float) -> float:
@@ -418,8 +431,13 @@ class AvoidanceCurve:
     return self._L1 + self._L2 + self._L3
 
   def update(self, v_ego: float, dt: float, sm=None, lead=None, now: float | None = None,
-             left_blocked: bool | None = None, right_blocked: bool | None = None) -> float:
-    """每控制周期调用, 返回应叠加的曲率(rad/m)。v_ego: m/s, dt: s。"""
+             left_blocked: bool | None = None, right_blocked: bool | None = None,
+             lane_change_active: bool = False) -> float:
+    """每控制周期调用, 返回应叠加的曲率(rad/m)。v_ego: m/s, dt: s。
+
+    lane_change_active: 模型换道中 -> 抑制曲线(换道轨迹与曲线叠加打架,
+    且换道本身就是在绕行)。detector 仍正常推进(限速持续有效)。
+    """
     # 1. 障碍检测(时间防抖, 与 carrot_man 的频率无关)
     lead_cur = lead
     cs = None
@@ -437,6 +455,23 @@ class AvoidanceCurve:
     # 状态机推进(结果由 detector.is_active()/estimate() 读取)
     self.detector.update(lead_cur, cs, now=now)
 
+    # 1b. 换道中: 抑制曲线(但 detector 已推进, 限速继续)
+    if lane_change_active:
+      if self._active:
+        self.reset(now)
+      return 0.0
+
+    # 1c. 激活中但目标侧突然 blocked: 立即取消曲线(侧后有车时不能继续
+    # 贴边绕行), 只保留限速。方向检查只在触发时做过, 这里每帧复查。
+    if self._active:
+      dir_now = self._direction
+      if dir_now < 0 and left_blocked is True:
+        self.reset(now)
+        return 0.0
+      if dir_now > 0 and right_blocked is True:
+        self.reset(now)
+        return 0.0
+
     # 2. 曲线状态推进
     if self._active:
       self._s += max(v_ego, 1.0) * dt
@@ -444,12 +479,15 @@ class AvoidanceCurve:
       if not self.detector.is_active() and self._s >= self._L1 + self._L2:
         pass  # 继续回中段
       if self._s >= self._total_len():
-        self.reset()
+        self.reset(now)
         return 0.0
 
     # 3. 未激活: 评估是否触发
     if not self._active:
       if self.detector.is_active():
+        # 曲线完成/取消后冷却期内不重触发(防同一障碍往复绕行)
+        if now is not None and now - self._done_at < CURVE_COOLDOWN_S:
+          return 0.0
         est_d = self.detector.estimate()
         d_rel = est_d.d_rel_m if est_d is not None else 40.0
         v_ego_kph = v_ego * 3.6
