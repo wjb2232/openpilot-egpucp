@@ -1960,7 +1960,7 @@ class CarrotServ:
         # 超车档位(1=激进/2=常规/3=保守), APK OvertakeSettingActivity 同参
         self.obstacle_avoidance.set_overtake_mode(self._params.get_int("OverTakeMode", 2))
         rs_avoid = sm["radarState"]
-        lead_one_avoid = rs_avoid.leadOne if rs_avoid.leadOne.present else None
+        lead_one_avoid = rs_avoid.leadOne if (rs_avoid.leadOne.present and rs_avoid.leadOne.status) else None
         cs_avoid = sm["carState"] if sm.alive.get("carState", False) else None
         est = self.obstacle_avoidance.update(lead_one_avoid, cs_avoid)
         if est.active:
@@ -2028,25 +2028,33 @@ class CarrotServ:
           self._raw["carrotArg"] = ""
 
         # 自动超车(OVERTAKE):前车明显慢 + 目标侧安全。APK 不在线时车端可独立触发。
-        v_lead_kph = None
-        try:
-          if rs_avoid.leadOne.present and rs_avoid.leadOne.status:
-            v_lead_kph = rs_avoid.leadOne.vLead * 3.6
-        except Exception:
+        # 若本轮已发避障换道(LANECHANGE), 不顶替: 方向可能不同, 中途改命令
+        # 会让 desire_helper 打灯方向跳变(复查发现)。
+        if self._raw.get("carrotCmd") == "LANECHANGE":
+          pass
+        else:
           v_lead_kph = None
-        ot_dir = self.obstacle_avoidance.overtake_request(
-          v_ego_kph_avoid, v_lead_kph,
-          left_blocked=left_blocked, right_blocked=right_blocked,
-          lane_change_active=_lc_active or rec_lane_paused,
-        )
-        if ot_dir is not None:
-          self._raw["carrotCmd"] = "OVERTAKE"
-          self._raw["carrotArg"] = ot_dir
-          self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
-          self.debug_text = getattr(self, "debug_text", "") + f"OT-{ot_dir} "
-        elif self._raw.get("carrotCmd") == "OVERTAKE":
-          self._raw["carrotCmd"] = ""
-          self._raw["carrotArg"] = ""
+          try:
+            if rs_avoid.leadOne.present and rs_avoid.leadOne.status:
+              v_lead_kph = rs_avoid.leadOne.vLead * 3.6
+          except Exception:
+            v_lead_kph = None
+          ot_dir = self.obstacle_avoidance.overtake_request(
+            v_ego_kph_avoid, v_lead_kph,
+            left_blocked=left_blocked, right_blocked=right_blocked,
+            lane_change_active=_lc_active or rec_lane_paused,
+            # 高速/普通路判定: 道路限速 >=80 视为高速(用 highway 档,
+            # 前车更低速也可超; 普通路用 road 档更保守)。
+            highway=(self.n_road_limit_speed >= 80),
+          )
+          if ot_dir is not None:
+            self._raw["carrotCmd"] = "OVERTAKE"
+            self._raw["carrotArg"] = ot_dir
+            self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
+            self.debug_text = getattr(self, "debug_text", "") + f"OT-{ot_dir} "
+          elif self._raw.get("carrotCmd") == "OVERTAKE":
+            self._raw["carrotCmd"] = ""
+            self._raw["carrotArg"] = ""
     except Exception as e_avoid:
       cloudlog.warning(f"carrot_serv: avoidance failed: {e_avoid}")
 
