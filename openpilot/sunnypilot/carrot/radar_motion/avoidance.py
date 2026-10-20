@@ -27,7 +27,10 @@ from dataclasses import dataclass
 MIN_TRIGGER_SPEED_KPH = 5.0
 MAX_TRIGGER_DREL_M = 40.0
 MAX_TRIGGER_DPATH_M = 3.5
-STOPPED_VREL_KPH = -3.0
+# 前车绝对速度低于此值视为静止/极慢障碍(触发避障)。
+# 注意不能用相对速度 v_rel 判据: 高速巡航时前车慢几 km/h 是常态,
+# v_rel < -3 会把正常慢车误判为静止障碍(egpucp 原版即如此)。
+STOPPED_VLEAD_KPH = 10.0
 TARGET_GAP_M = 40.0
 MAX_AVOID_SPEED_KPH = 80.0
 
@@ -140,16 +143,17 @@ class ObstacleAvoidance:
     if v_ego < MIN_TRIGGER_SPEED_KPH:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "slow-ego")
 
-    is_stopped = v_rel < STOPPED_VREL_KPH
-    if not is_stopped:
-      try:
-        v_lead = float(lead.vLead) * 3.6
-        is_stopped = v_lead < 1.0
-      except Exception:
-        pass
+    # 静止/极慢判定: 必须看前车绝对速度(vLead), 不能只看相对速度。
+    # v_rel < -3 只说明"前车比我慢"——高速巡航时前车慢 3~5km/h 是常态,
+    # 若误判为静止障碍会触发无谓限速+换道(复查发现, egpucp 原判据)。
+    # 绝对速度 < STOPPED_VLEAD_KPH 才视为极慢/静止障碍。
+    try:
+      v_lead = float(lead.vLead) * 3.6
+    except Exception:
+      v_lead = v_ego + v_rel  # 无 vLead 字段时用自车速度+相对速度合成
+    is_stopped = v_lead < STOPPED_VLEAD_KPH
     if not is_stopped:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "moving-lead")
-
     if d_rel >= TARGET_GAP_M:
       return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "matching-lead")
     speed_kph = v_ego * max(0.0, d_rel / TARGET_GAP_M)
