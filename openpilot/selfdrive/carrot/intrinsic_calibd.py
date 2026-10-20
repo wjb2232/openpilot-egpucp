@@ -21,6 +21,7 @@
     {"f": ..., "pitch_offset": ..., "roll_offset": 0.0, "yaw_offset": 0.0,
      "samples": N, "span": ..., "converged": bool, "t": ...}
   modeld 启动时读取,同时覆盖该流内参(f)与外参(pitch_offset)。
+  f 与 pitch_offset 均只进不退(std 更小才更新),未收敛/超物理上限绝不写入。
 """
 import json
 import time
@@ -192,13 +193,17 @@ class StreamCalib:
       mode = "joint_lsq"
     if not (300.0 <= f <= 4000.0):
       return None
+    if abs(observed_offset) > MAX_OFFSET:
+      # 外参偏置超出物理上限:LSQ 病态(如消失点误检), 拒绝
+      return None
     if fitted is not None:
       std = float(np.std(y - fitted))
     return {
       "f": round(f, 1),
-      # Mounting pitch belongs exclusively to calibrationd.rpyCalib and
-      # wideFromDeviceEuler. Publishing it here would apply it twice in modeld.
-      "pitch_offset": 0.0,
+      # 外参 pitch_offset: LSQ 解出的安装俯仰偏置。校准完成时 rpyCalib 已含
+      # 安装姿态, 此值是校准未吸收的残差(应~0); 校准未完成(uncalibrated,
+      # rpy=0)时它是绝对的相机安装俯仰 —— 两种情况都用它补偿, 越用越准。
+      "pitch_offset": round(float(observed_offset), 5),
       "samples": self.total_seen,
       "span": round(span, 4),
       "std": round(std, 1),
