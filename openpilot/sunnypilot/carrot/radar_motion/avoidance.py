@@ -212,6 +212,7 @@ class ObstacleAvoidance:
                           left_blocked: bool | None = None,
                           right_blocked: bool | None = None,
                           lane_change_active: bool = False,
+                          highway: bool = False,
                           now: float | None = None) -> str | None:
     """评估是否应自动换道绕行。返回 "LEFT"/"RIGHT"/None。
 
@@ -220,6 +221,10 @@ class ObstacleAvoidance:
       None  = 无该侧信息(视为可绕, 保守性由调用方保证)
       True  = 该侧有风险(后方来车/盲区/行人/相邻车道占用) -> 不可绕
       False = 该侧安全
+
+    highway: 道路类型(限速>=80 视为高速/快速路)。仅用于居中障碍的
+    默认绕向——高速左绕(超车道, 国内标准); 普通路右绕(右侧路肩
+    空间, 不借对向车道)。
     """
     now = time.monotonic() if now is None else now
     if now - getattr(self, "_lc_last_request", 0.0) < LC_COOLDOWN_S:
@@ -235,8 +240,15 @@ class ObstacleAvoidance:
     left_clear = left_blocked is not True
     right_clear = right_blocked is not True
     # 障碍反侧优先: yRel 左正(log.capnp), y_rel>0=障碍在左 -> 右绕
-    # (离开障碍); 偏左/居中 -> 默认左绕(国内左超车, 靠右行驶)。
-    prefer_left = self._last_y_rel <= 0.0
+    # (离开障碍); y_rel<0=障碍在右 -> 左绕; 居中 -> 按道路类型:
+    # 高速/快速路默认左绕(超车道), 普通路默认右绕(右侧空间, 不借对向道)。
+    y = self._last_y_rel
+    if y > 0.0:
+      prefer_left = False
+    elif y < 0.0:
+      prefer_left = True
+    else:
+      prefer_left = highway
     if prefer_left and left_clear:
       direction = "LEFT"
     elif (not prefer_left) and right_clear:
@@ -297,9 +309,15 @@ class ObstacleAvoidance:
 
     left_clear = left_blocked is not True
     right_clear = right_blocked is not True
-    # 档位偏好: prefer_left_first 优先左侧; 障碍反侧优先次之(yRel 左正,
-    # y_rel>0=障碍在左 -> 右绕; 偏左/居中 -> 左绕)。
-    prefer_left = p["prefer_left_first"] or self._last_y_rel <= 0.0
+    # 障碍反侧优先: yRel 左正, y_rel>0=障碍在左 -> 右绕; y_rel<0=障碍
+    # 在右 -> 左绕; 居中 -> 按档位偏好(prefer_left_first)。
+    y = self._last_y_rel
+    if y > 0.0:
+      prefer_left = False
+    elif y < 0.0:
+      prefer_left = True
+    else:
+      prefer_left = p["prefer_left_first"]
     if prefer_left and left_clear:
       direction = "LEFT"
     elif (not prefer_left) and right_clear and p["allow_right_overtake"]:
@@ -360,15 +378,17 @@ class AvoidanceCurve:
     return self._active
 
   def _pick_direction(self, lead, sm, left_blocked: bool | None = None,
-                      right_blocked: bool | None = None) -> int:
+                      right_blocked: bool | None = None,
+                      highway: bool = False) -> int:
     """返回避让方向: +1 右绕, -1 左绕; 0 不避让(只限速)。
 
     侧后安全(左/右)由调用方合成: lidar 盲区 + radarTracks 点云 +
     模型 laneChangeAvailable + 视觉行人。None 表示无信息。
 
     yRel 为 car frame, 左正(log.capnp): y_rel>0 = 障碍在左 -> 右绕
-    (离开障碍); y_rel<0 = 障碍在右 -> 左绕; 居中 -> 默认左绕(左超车
-    习惯, 靠右行驶)。
+    (离开障碍); y_rel<0 = 障碍在右 -> 左绕; 居中 -> 按道路类型:
+    高速/快速路(highway)左绕(超车道), 普通路右绕(右侧空间, 不借
+    对向车道)。
     """
     md = None
     lav_l = lav_r = None
@@ -385,7 +405,12 @@ class AvoidanceCurve:
       y_rel = float(lead.yRel) if lead is not None else 0.0
     except Exception:
       y_rel = 0.0
-    prefer_left = y_rel <= 0.0
+    if y_rel > 0.0:
+      prefer_left = False
+    elif y_rel < 0.0:
+      prefer_left = True
+    else:
+      prefer_left = highway
 
     # 合成"该侧可绕": 无明确 blocked, 且模型未明确禁止
     left_ok = left_blocked is not True
@@ -432,11 +457,12 @@ class AvoidanceCurve:
 
   def update(self, v_ego: float, dt: float, sm=None, lead=None, now: float | None = None,
              left_blocked: bool | None = None, right_blocked: bool | None = None,
-             lane_change_active: bool = False) -> float:
+             lane_change_active: bool = False, highway: bool = False) -> float:
     """每控制周期调用, 返回应叠加的曲率(rad/m)。v_ego: m/s, dt: s。
 
     lane_change_active: 模型换道中 -> 抑制曲线(换道轨迹与曲线叠加打架,
     且换道本身就是在绕行)。detector 仍正常推进(限速持续有效)。
+    highway: 道路类型(限速>=80), 居中障碍的默认绕向(高速左绕/普通路右绕)。
     """
     # 1. 障碍检测(时间防抖, 与 carrot_man 的频率无关)
     lead_cur = lead
@@ -492,7 +518,7 @@ class AvoidanceCurve:
         d_rel = est_d.d_rel_m if est_d is not None else 40.0
         v_ego_kph = v_ego * 3.6
         if (d_rel <= NEAR_AVOID_M and v_ego_kph >= MIN_TRIGGER_SPEED_KPH):
-          direction = self._pick_direction(lead_cur, sm, left_blocked, right_blocked)
+          direction = self._pick_direction(lead_cur, sm, left_blocked, right_blocked, highway=highway)
           if direction != 0:
             self._setup_curve(v_ego, d_rel, direction)
             self._active = True
