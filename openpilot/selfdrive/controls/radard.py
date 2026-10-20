@@ -238,7 +238,11 @@ class RadarD:
       self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead)
 
     # *** publish radarState ***
-    self.radar_state_valid = sm.all_checks()
+    # valid 只依赖 modelV2: radarState 的 lead 完全来自模型(leadsV3)与雷达
+    # 点融合。开发台/webcam 无雷达(radarTracks 无)且 carState 为模拟数据
+    # (valid=False)时, radarState 仍携带视觉 lead, 必须视为有效, 否则
+    # UI/planner 整体丢弃 radarState, 视觉前车检测被抑制。真车行为不变。
+    self.radar_state_valid = sm.valid['modelV2']
     self.radar_state = log.RadarState.new_message()
     self.radar_state.mdMonoTime = sm.logMonoTime['modelV2']
     self.radar_state.radarErrors = rr.errors
