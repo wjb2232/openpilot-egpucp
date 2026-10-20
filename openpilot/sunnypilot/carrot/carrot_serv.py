@@ -1950,7 +1950,6 @@ class CarrotServ:
     # 雷达 leadOne 检测本车道静止/低速障碍 -> 限速;侧后安全(盲区+雷达
     # 点云+模型 laneChangeAvailable)通过后发 LANECHANGE/OVERTAKE 命令,
     # desire_helper 消费命令打灯,模型执行换道。
-    avoid_active = False
     try:
       # 推荐车道变道暂停(APK 语义): 导航引导(navLaneGuide)长时间不变且车辆
       # 已在推荐车道 -> 暂停主动换道/超车,避免无谓变道;引导变化即恢复。
@@ -1965,7 +1964,6 @@ class CarrotServ:
         cs_avoid = sm["carState"] if sm.alive.get("carState", False) else None
         est = self.obstacle_avoidance.update(lead_one_avoid, cs_avoid)
         if est.active:
-          avoid_active = True
           speed_n_sources.append((float(est.speed_kph), "avoid"))
           self.debug_text = getattr(self, "debug_text", "") + f"AV:{est.speed_kph:.0f}/{est.d_rel_m:.0f}m "
 
@@ -2015,7 +2013,9 @@ class CarrotServ:
         lc_dir = self.obstacle_avoidance.lane_change_request(
           v_ego_kph_avoid,
           left_blocked=left_blocked, right_blocked=right_blocked,
-          lane_change_active=_lc_active or rec_lane_paused,
+          # 注意: 避障换道(LANECHANGE)是紧急安全功能, 不受推荐车道暂停抑制;
+          # rec_lane_paused 仅抑制主动超车(OVERTAKE), 见下方 OT 调用。
+          lane_change_active=_lc_active,
         )
         if lc_dir is not None:
           self._raw["carrotCmd"] = "LANECHANGE"
@@ -2052,7 +2052,6 @@ class CarrotServ:
 
     # 盲区减速(APK blindDecSpeed 同参): 侧盲区有车(激光/摄像头/原车BSD)
     # 时限制速度, 盲区消失后维持 blind_safe_time 再恢复(避免反复加减速)。
-    blind_active = False
     try:
       if self.blind_dec_speed_enabled and getattr(self, "_sd", None) is not None:
         sd_b = self._sd
@@ -2073,14 +2072,12 @@ class CarrotServ:
         if now_b < self._blind_dec_active_until:
           blind_speed = max(0.0, v_ego_kph - self.blind_dec_speed_offset)
           speed_n_sources.append((blind_speed, "blind"))
-          blind_active = True
           self.debug_text = getattr(self, "debug_text", "") + f"BL{self.blind_dec_speed_offset} "
     except Exception as e_blind:
       cloudlog.warning(f"carrot_serv: blind decel failed: {e_blind}")
 
     # 隧道减速(APK cbTunnelDecSpeed 同参): roadcate==24(Tunnel section)时
     # 限速到隧道目标速度, 出隧道后维持 tunnel_dec_keep_time 再恢复。
-    tunnel_active = False
     try:
       if self.tunnel_dec_speed_enabled:
         now_t = time.monotonic()
@@ -2088,7 +2085,6 @@ class CarrotServ:
           self._tunnel_dec_until = now_t + self.tunnel_dec_keep_time
         if now_t < self._tunnel_dec_until:
           speed_n_sources.append((float(self.tunnel_dec_speed_kmh), "tunnel"))
-          tunnel_active = True
           self.debug_text = getattr(self, "debug_text", "") + f"TL{self.tunnel_dec_speed_kmh} "
     except Exception as e_tunnel:
       cloudlog.warning(f"carrot_serv: tunnel decel failed: {e_tunnel}")

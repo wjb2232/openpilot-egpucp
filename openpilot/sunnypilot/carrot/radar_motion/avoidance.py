@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 MIN_TRIGGER_SPEED_KPH = 5.0
@@ -430,7 +430,8 @@ class AvoidanceCurve:
         pass
     if lead_cur is None and lead is not None:
       lead_cur = lead
-    est = self.detector.update(lead_cur, cs, now=now)
+    # 状态机推进(结果由 detector.is_active()/estimate() 读取)
+    self.detector.update(lead_cur, cs, now=now)
 
     # 2. 曲线状态推进
     if self._active:
@@ -473,9 +474,12 @@ class AvoidanceCurve:
       return 0.0
     O, L1, L2, L3 = self._O, self._L1, self._L2, self._L3
     s = self._s
-    q = lambda r: 10.0 * r ** 3 - 15.0 * r ** 4 + 6.0 * r ** 5
+
+    def _q(r: float) -> float:
+      return 10.0 * r ** 3 - 15.0 * r ** 4 + 6.0 * r ** 5
+
     if s < L1:
-      return O * q(s / L1)
+      return O * _q(s / L1)
     if s < L1 + L2:
       return O
-    return O * (1.0 - q((s - L1 - L2) / L3))
+    return O * (1.0 - _q((s - L1 - L2) / L3))
