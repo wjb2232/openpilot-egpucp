@@ -91,7 +91,11 @@ class DesireHelper:
       self._bt_lane_count -= 1
       if remote in ('laneLeft', 'laneRight'):
         self.carrot_virtual_blinker = 1 if remote == 'laneLeft' else 2
-      # When count expires and no new lane command arrives, carrot_man or the else branch below clears it.
+      elif self._bt_lane_count == 0 and time.monotonic() >= self._cmd_blinker_until:
+        # 蓝牙灯窗口到期且无新命令: 主动清灯。否则在 one_blinker 里
+        # 直接参与时, 冻结的虚拟灯会变成持续换道欲望(ATC 关闭时
+        # 123 行 else 不执行, 这里必须兜底)。
+        self.carrot_virtual_blinker = 0
 
     # Refresh the ATC killswitch at most once a second (update() runs at 100 Hz).
     self._carrot_atc_blinker_param_t += DT_MDL
@@ -153,6 +157,15 @@ class DesireHelper:
         self.carrot_cmd_index_last = carrot_man.carrotCmdIndex
         if time.monotonic() < self._intervention_until:
           pass  # 冷却中: 消费但不响应
+        # 新命令方向 vs 司机真实反向灯: 司机明确打反向灯(同帧, 上一帧无虚拟
+        # 灯可比)时直接拒绝, 不能让错误方向的虚拟灯出现哪怕 1 帧(否则会先
+        # preLaneChange 错向, 下一帧才被干预检查修正)。反向灯本身也是干预。
+        elif carrot_man.carrotArg == "LEFT" and carstate.rightBlinker:
+          self._intervention_until = time.monotonic() + self.intervention_cooldown
+          self.carrot_virtual_blinker = 0
+        elif carrot_man.carrotArg == "RIGHT" and carstate.leftBlinker:
+          self._intervention_until = time.monotonic() + self.intervention_cooldown
+          self.carrot_virtual_blinker = 0
         elif carrot_man.carrotCmd in ["LANECHANGE", "OVERTAKE"]:
           if carrot_man.carrotArg == "LEFT":
             self.carrot_virtual_blinker = 1

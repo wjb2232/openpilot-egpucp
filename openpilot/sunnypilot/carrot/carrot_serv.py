@@ -1981,9 +1981,11 @@ class CarrotServ:
         if sd_avoid is not None:
           left_blocked = bool(getattr(sd_avoid, "left_blind", False) or
                               getattr(sd_avoid, "lidar_left_blind", False) or
+                              getattr(sd_avoid, "lidar_car_left_blind", False) or
                               getattr(sd_avoid, "camera_left", False))
           right_blocked = bool(getattr(sd_avoid, "right_blind", False) or
                                getattr(sd_avoid, "lidar_right_blind", False) or
+                               getattr(sd_avoid, "lidar_car_right_blind", False) or
                                getattr(sd_avoid, "camera_right", False))
           # 后向四角点云:lb/rb 有近距目标视为侧后占用
           for attr in ("lb_drel", "rb_drel"):
