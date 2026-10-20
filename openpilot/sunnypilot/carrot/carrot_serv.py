@@ -1956,7 +1956,12 @@ class CarrotServ:
     # 雷达 leadOne 检测本车道静止/低速障碍 -> 限速;侧后安全(盲区+雷达
     # 点云+模型 laneChangeAvailable)通过后发 LANECHANGE/OVERTAKE 命令,
     # desire_helper 消费命令打灯,模型执行换道。
+    # 兜底: 无论本帧能否进 avoidance 块, 未激活时必须清零曲率发布,
+    # 否则功能刚关闭/换道中曲线的旧值会继续被 controlsd 叠加(安全)。
     try:
+      if not (self._params.get_bool("AvoidanceEnabled", False) and sm.alive.get("radarState", False)):
+        self.avoid_curvature = 0.0
+        self.avoid_dist = 0.0
       # 推荐车道变道暂停(APK 语义): 导航引导(navLaneGuide)长时间不变且车辆
       # 已在推荐车道 -> 暂停主动换道/超车,避免无谓变道;引导变化即恢复。
       rec_lane_paused = self._update_recommended_lane_pause()
@@ -2022,7 +2027,9 @@ class CarrotServ:
         self._avoid_curve_last = now_av
         self.avoid_curvature = float(self.avoidance_curve.update(
           cs_avoid.vEgo if cs_avoid is not None else 0.0, dt_av, sm,
-          now=now_av, left_blocked=left_blocked, right_blocked=right_blocked))
+          now=now_av, left_blocked=left_blocked, right_blocked=right_blocked,
+          # 模型换道中: 抑制曲线(换道轨迹与曲线叠加打架, 且换道本就在绕行)
+          lane_change_active=_lc_active))
         est = self.obstacle_avoidance.estimate()
         if est is not None:
           speed_n_sources.append((float(est.speed_kph), "avoid"))
@@ -2032,8 +2039,11 @@ class CarrotServ:
             self.debug_text = getattr(self, "debug_text", "") + f"CV:{self.avoid_curvature * 1000.0:.1f} "
           self.avoid_dist = float(self.avoidance_curve._total_len()) if self.avoidance_curve.is_active() else 0.0
         else:
-          self.avoid_curvature = 0.0
-          self.avoid_dist = 0.0
+          # 障碍消失(或超 RELEASE 释放): 若曲线仍在回中段, 让它走完
+          # (平滑回正); 未激活才清零, 否则回正中途被掐断会突兀摆正。
+          if not self.avoidance_curve.is_active():
+            self.avoid_curvature = 0.0
+            self.avoid_dist = 0.0
 
         lc_dir = self.obstacle_avoidance.lane_change_request(
           v_ego_kph_avoid,
@@ -2046,6 +2056,10 @@ class CarrotServ:
           self._raw["carrotCmd"] = "LANECHANGE"
           self._raw["carrotArg"] = lc_dir
           self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
+          # 换道命令已发: 立即取消曲线(模型 laneChangeState 要下一帧才反映,
+          # 不能让曲线与换道轨迹叠加打架)。
+          self.avoidance_curve.reset()
+          self.avoid_curvature = 0.0
           self.debug_text = getattr(self, "debug_text", "") + f"LC-{lc_dir} "
         elif self._raw.get("carrotCmd") == "LANECHANGE":
           # 本轮未请求换道:清理悬挂命令(已发送,index 不变不重复触发)
@@ -2076,6 +2090,9 @@ class CarrotServ:
             self._raw["carrotCmd"] = "OVERTAKE"
             self._raw["carrotArg"] = ot_dir
             self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
+            # 超车命令已发: 立即取消曲线(同 LC, 防轨迹叠加打架)。
+            self.avoidance_curve.reset()
+            self.avoid_curvature = 0.0
             self.debug_text = getattr(self, "debug_text", "") + f"OT-{ot_dir} "
           elif self._raw.get("carrotCmd") == "OVERTAKE":
             self._raw["carrotCmd"] = ""
