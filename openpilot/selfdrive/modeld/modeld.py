@@ -508,10 +508,28 @@ def main(demo=False):
       # 内参/外参自进化(intrinsic_calibd):CamCalibRoad/Wide 的 f 覆盖出厂内参,
       # pitch_offset 叠加到外参。CamCalib 未收敛/未写入时退回出厂默认。
       cam_calib = camera_calibration_cache.resolve(params, dc, time.monotonic())
-      road_intrinsics = dc.narrow_road.intrinsics.copy()
-      road_intrinsics[0, 0] = road_intrinsics[1, 1] = cam_calib.road.focal_length
-      wide_intrinsics = dc.wide_road.intrinsics.copy()
-      wide_intrinsics[0, 0] = wide_intrinsics[1, 1] = cam_calib.wide.focal_length
+      is_webcam = str(sm['narrowRoadCameraState'].sensor) == 'unknown' and vipc_client_main.width > 0
+      if is_webcam:
+        # Webcam/J501: DEVICE_CAMERAS[('pc','unknown')] 给的是 tici AR0231
+        # (1928x1208, f=2648/567, 中心 964/604), 而实际流是 1344x760。必须用
+        # 实际流分辨率的一半做内参中心 (672,380), f 用 CamCalib 先验
+        # (2508/405.2, 本就是按 1344 宽算的)——否则 warp 错位, 轨迹飞天。
+        w_main, h_main = vipc_client_main.width, vipc_client_main.height
+        road_intrinsics = np.array([[cam_calib.road.focal_length, 0.0, w_main / 2.0],
+                                    [0.0, cam_calib.road.focal_length, h_main / 2.0],
+                                    [0.0, 0.0, 1.0]], dtype=np.float32)
+        if use_extra_client and vipc_client_extra.width > 0:
+          w_wide, h_wide = vipc_client_extra.width, vipc_client_extra.height
+        else:
+          w_wide, h_wide = w_main, h_main
+        wide_intrinsics = np.array([[cam_calib.wide.focal_length, 0.0, w_wide / 2.0],
+                                    [0.0, cam_calib.wide.focal_length, h_wide / 2.0],
+                                    [0.0, 0.0, 1.0]], dtype=np.float32)
+      else:
+        road_intrinsics = dc.narrow_road.intrinsics.copy()
+        road_intrinsics[0, 0] = road_intrinsics[1, 1] = cam_calib.road.focal_length
+        wide_intrinsics = dc.wide_road.intrinsics.copy()
+        wide_intrinsics[0, 0] = wide_intrinsics[1, 1] = cam_calib.wide.focal_length
       road_euler = compose_camera_euler(device_from_calib_euler, None, cam_calib.road.pitch_offset)
       wide_euler = compose_camera_euler(device_from_calib_euler,
                                         np.array(sm["extrinsicsCalibration"].wideFromDeviceEuler, dtype=np.float32),
@@ -522,20 +540,6 @@ def main(demo=False):
       else:
         main_intrinsics = road_intrinsics
         main_euler = road_euler
-      # Webcam/bench: stock intrinsics assume the tici sensor size (1928x1208).
-      # A USB webcam stream can differ (e.g. 1344x760); using stock intrinsics
-      # directly warps the image so the road surface is pushed out of the model
-      # input -> nearly-straight low-confidence path that barely reacts. Scale
-      # the intrinsics to the actual stream resolution when the sensor is the
-      # webcam placeholder ('unknown') and no converged CamCalib override exists.
-      if str(sm['narrowRoadCameraState'].sensor) == 'unknown' and vipc_client_main.width > 0           and cam_calib.road.source == "prior":
-        sx = vipc_client_main.width / 1928.0
-        sy = vipc_client_main.height / 1208.0
-        main_intrinsics = main_intrinsics.copy()
-        main_intrinsics[0, 0] *= sx
-        main_intrinsics[1, 1] *= sy
-        main_intrinsics[0, 2] *= sx
-        main_intrinsics[1, 2] *= sy
       model_transform_main = get_warp_matrix(main_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
       if has_wide_camera:
