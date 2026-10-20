@@ -31,6 +31,10 @@ MAX_TRIGGER_DPATH_M = 3.5
 # 注意不能用相对速度 v_rel 判据: 高速巡航时前车慢几 km/h 是常态,
 # v_rel < -3 会把正常慢车误判为静止障碍(egpucp 原版即如此)。
 STOPPED_VLEAD_KPH = 10.0
+# 曲线绕行/避障换道只对"真静止"障碍触发(vLead<3km/h): 前车还在蠕动
+# (3~10km/h 排队)只限速跟随, 不横向绕出车流/借对向道(队列里绕行危险)。
+# 阶段1限速仍对排队生效(vLead<10), 这是纵向减速 vs 横向绕行的分界。
+TRULY_STOPPED_VLEAD_KPH = 3.0
 TARGET_GAP_M = 40.0
 MAX_AVOID_SPEED_KPH = 80.0
 
@@ -108,6 +112,7 @@ class AvoidanceEstimate:
   d_rel_m: float
   d_path_m: float
   v_rel_kph: float
+  v_lead_kph: float = 999.0  # 前车绝对速度(km/h); 远/无数据时默认大值
   reason: str = ""
 
 
@@ -130,21 +135,21 @@ class ObstacleAvoidance:
 
   def _detect_obstacle(self, lead, car_state) -> AvoidanceEstimate:
     if lead is None or car_state is None:
-      return AvoidanceEstimate(False, 0.0, 0.0, 0.0, 0.0, "no-data")
+      return AvoidanceEstimate(False, 0.0, 0.0, 0.0, 0.0, reason="no-data")
     try:
       d_rel = float(lead.dRel)
       d_path = float(lead.dPath)
       v_rel = float(lead.vRel) * 3.6
       v_ego = float(car_state.vEgo) * 3.6
     except Exception:
-      return AvoidanceEstimate(False, 0.0, 0.0, 0.0, 0.0, "bad-data")
+      return AvoidanceEstimate(False, 0.0, 0.0, 0.0, 0.0, reason="bad-data")
 
     if abs(d_path) > MAX_TRIGGER_DPATH_M:
-      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "off-path")
+      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, reason="off-path")
     if d_rel > MAX_TRIGGER_DREL_M:
-      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "far")
+      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, reason="far")
     if v_ego < MIN_TRIGGER_SPEED_KPH:
-      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "slow-ego")
+      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, reason="slow-ego")
 
     # 静止/极慢判定: 必须看前车绝对速度(vLead), 不能只看相对速度。
     # v_rel < -3 只说明"前车比我慢"——高速巡航时前车慢 3~5km/h 是常态,
@@ -156,14 +161,14 @@ class ObstacleAvoidance:
       v_lead = v_ego + v_rel  # 无 vLead 字段时用自车速度+相对速度合成
     is_stopped = v_lead < STOPPED_VLEAD_KPH
     if not is_stopped:
-      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "moving-lead")
+      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, v_lead_kph=v_lead, reason="moving-lead")
     if d_rel >= TARGET_GAP_M:
-      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, "matching-lead")
+      return AvoidanceEstimate(False, 0.0, d_rel, d_path, v_rel, v_lead_kph=v_lead, reason="matching-lead")
     speed_kph = v_ego * max(0.0, d_rel / TARGET_GAP_M)
     speed_kph = min(speed_kph, MAX_AVOID_SPEED_KPH)
     # desiredSpeed=0 会被 controlsd 过滤, 最低 1.0 kph 保证通道有效
     speed_kph = max(speed_kph, 1.0)
-    return AvoidanceEstimate(True, speed_kph, d_rel, d_path, v_rel, "stopped-obstacle")
+    return AvoidanceEstimate(True, speed_kph, d_rel, d_path, v_rel, v_lead_kph=v_lead, reason="stopped-obstacle")
 
   def update(self, lead, car_state, now: float | None = None) -> AvoidanceEstimate:
     now = time.monotonic() if now is None else now
@@ -194,7 +199,7 @@ class ObstacleAvoidance:
 
     if self._active and self._last_estimate is not None:
       return self._last_estimate
-    return AvoidanceEstimate(False, 0.0, est.d_rel_m, est.d_path_m, est.v_rel_kph, est.reason)
+    return AvoidanceEstimate(False, 0.0, est.d_rel_m, est.d_path_m, est.v_rel_kph, reason=est.reason)
 
   def suggested_speed(self) -> float | None:
     if self._active and self._last_estimate is not None:
@@ -235,6 +240,10 @@ class ObstacleAvoidance:
     if est is None or est.d_rel_m > LC_NEAR_M:
       return None
     if v_ego_kph < LC_MIN_SPEED_KPH:
+      return None
+    # 真静止门槛: 前车还在蠕动(排队)只限速跟随, 不借道换行。与曲线绕行
+    # 同一语义(TRULY_STOPPED), 避免堵车排队时从车流里绕出去。
+    if est.v_lead_kph >= TRULY_STOPPED_VLEAD_KPH:
       return None
 
     left_clear = left_blocked is not True
@@ -517,7 +526,12 @@ class AvoidanceCurve:
         est_d = self.detector.estimate()
         d_rel = est_d.d_rel_m if est_d is not None else 40.0
         v_ego_kph = v_ego * 3.6
-        if (d_rel <= NEAR_AVOID_M and v_ego_kph >= MIN_TRIGGER_SPEED_KPH):
+        # 只对"真静止"障碍绕行曲线: 前车还在蠕动(vLead 3~10km/h 排队)只
+        # 限速跟随, 不横向绕出车流(在队列里绕行危险, 且对向借道易撞)。
+        # 限速(阶段1)仍对排队生效(vLead<10), 曲线/LC 仅针对 vLead<3。
+        v_lead_kph = est_d.v_lead_kph if est_d is not None else 999.0
+        if (d_rel <= NEAR_AVOID_M and v_ego_kph >= MIN_TRIGGER_SPEED_KPH
+            and v_lead_kph < TRULY_STOPPED_VLEAD_KPH):
           direction = self._pick_direction(lead_cur, sm, left_blocked, right_blocked, highway=highway)
           if direction != 0:
             self._setup_curve(v_ego, d_rel, direction)
