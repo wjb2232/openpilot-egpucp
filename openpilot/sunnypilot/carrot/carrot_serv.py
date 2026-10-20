@@ -36,6 +36,13 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.carrot.config import UnifiedParams
 from openpilot.sunnypilot.carrot.radar_motion.avoidance import AvoidanceCurve, ObstacleAvoidance
 
+# 视觉小目标检测(YOLO 行人/自行车/动物/锥桶等)。c3 的 venv 可能缺 opencv,
+# obstacle_vision 内部已降级处理(cv2=None 时空转), 顶层 import 不崩。
+try:
+  from openpilot.sunnypilot.carrot.radar_motion.obstacle_vision import VisionObstacleDetector
+except Exception:
+  VisionObstacleDetector = None  # type: ignore[assignment,misc]
+
 
 # Countdown rearm threshold (meters). A jump larger than this means a new
 # target has appeared and the countdown should reset.
@@ -184,6 +191,11 @@ class CarrotServ:
     self.avoid_dist = 0.0             # 曲线总长(m), 供 UI/调试
     self._avoid_curve_last = 0.0      # 上次曲线推进时间(算 dt)
     self._sd = None  # AmapNaviServ.shared_data,set_shared_data() 注入
+    # 视觉小目标检测器(YOLO): 行人/自行车/动物/锥桶等雷达反射不到的目标。
+    # VisionObstacleDetector 可能因 opencv 缺失而为 None(空转), 不影响主流程。
+    self.vision_detector = VisionObstacleDetector() if VisionObstacleDetector is not None else None
+    self._vision_vipc = None         # VisionIPC road 流客户端(懒连接)
+    self._vision_vipc_tried = 0.0    # 上次连接尝试时间(避免每帧重试)
     # 盲区减速(APK blindDecSpeed 同参): 侧盲区有车时限制速度。
     self.blind_dec_speed_enabled = False
     self.blind_dec_speed_offset = 15   # km/h, 盲区有车时 v_ego - offset
@@ -2039,6 +2051,32 @@ class CarrotServ:
         if _lav_r is False:
           right_blocked = True
 
+        # 视觉小目标检测(行人/自行车/动物/锥桶等): VisionIPC 拿 road 帧
+        # -> YOLO detect -> 与雷达 lead 融合(avoidance_curve.update 内部取
+        # 更近者)。camerad 死/无 opencv/未点火时静默跳过, 不影响主流程。
+        vision_obs = []
+        try:
+          if self.vision_detector is not None:
+            from msgq.visionipc import VisionIpcClient, VisionStreamType
+            if self._vision_vipc is None and time.monotonic() - self._vision_vipc_tried > 2.0:
+              self._vision_vipc_tried = time.monotonic()
+              self._vision_vipc = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_ROAD, False)
+              if not self._vision_vipc.connect(False):
+                self._vision_vipc = None
+            if self._vision_vipc is not None:
+              buf = self._vision_vipc.recv(0)  # 此 fork 的 pyx 不支持 timeout= 关键字
+              if buf is not None:
+                import numpy as np
+                y_plane = np.frombuffer(
+                  buf.data[:buf.height * buf.stride], dtype=np.uint8,
+                ).reshape(buf.height, buf.stride)[:, :buf.width]
+                vision_obs = self.vision_detector.detect(y_plane) or []
+                if vision_obs:
+                  near = min(vision_obs, key=lambda o: o.d_rel)
+                  self.debug_text = getattr(self, "debug_text", "") + f"VIS:{near.cls[:4]}:{near.d_rel:.0f}m "
+        except Exception:
+          vision_obs = []  # VisionIPC 未就绪/相机未起: 静默跳过
+
         # 阶段2 曲线避让 + 阶段1 限速: 由 AvoidanceCurve.update 统一推进
         # detector 防抖状态机一次(曲线与 detector 共享实例, 避免外部再调
         # obstacle_avoidance.update 造成双重推进、清零确认计时)。
@@ -2053,7 +2091,9 @@ class CarrotServ:
                   # 模型换道中: 抑制曲线(换道轨迹与曲线叠加打架, 且换道本就在绕行)
                   lane_change_active=_lc_active,
                   # 居中障碍默认绕向: 高速左绕(超车道), 普通路右绕(不借对向道)
-                  highway=(self.n_road_limit_speed >= 80)))
+                  highway=(self.n_road_limit_speed >= 80),
+                  # 视觉小目标 -> 虚拟 lead 融合(雷达反射不到的行人/锥桶等)
+                  vision_obstacles=vision_obs))
         est = self.obstacle_avoidance.estimate()
         if est is not None:
           speed_n_sources.append((float(est.speed_kph), "avoid"))

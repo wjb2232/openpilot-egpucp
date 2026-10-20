@@ -466,12 +466,16 @@ class AvoidanceCurve:
 
   def update(self, v_ego: float, dt: float, sm=None, lead=None, now: float | None = None,
              left_blocked: bool | None = None, right_blocked: bool | None = None,
-             lane_change_active: bool = False, highway: bool = False) -> float:
+             lane_change_active: bool = False, highway: bool = False,
+             vision_obstacles: list | None = None) -> float:
     """每控制周期调用, 返回应叠加的曲率(rad/m)。v_ego: m/s, dt: s。
 
     lane_change_active: 模型换道中 -> 抑制曲线(换道轨迹与曲线叠加打架,
     且换道本身就是在绕行)。detector 仍正常推进(限速持续有效)。
     highway: 道路类型(限速>=80), 居中障碍的默认绕向(高速左绕/普通路右绕)。
+    vision_obstacles: YOLO 视觉小目标检测结果(list[VisionObstacle]),
+    行人/自行车/动物/锥桶等雷达反射不到的目标 -> 折成虚拟 lead 融合,
+    与雷达 leadOne 取更危险(更近)者喂状态机(阶段1 限速 + 阶段2 曲线)。
     """
     # 1. 障碍检测(时间防抖, 与 carrot_man 的频率无关)
     lead_cur = lead
@@ -487,6 +491,29 @@ class AvoidanceCurve:
         pass
     if lead_cur is None and lead is not None:
       lead_cur = lead
+
+    # 1a. 视觉小目标融合: 本车道内(横向偏移 < MAX_TRIGGER_DPATH_M)最近的
+    # 视觉障碍 -> 虚拟 lead。行人/自行车/动物/锥桶雷达反射弱或不反射,
+    # 只靠 radarState 检测不到(用户反馈: 检测不到避障就是扯蛋)。
+    # 虚拟 lead 视为静止/极慢目标(vLead=0, 与真静止门槛一致), 驱动
+    # 与雷达相同的状态机(限速 + 曲线 + 换道), 与雷达 lead 取更近者。
+    if vision_obstacles:
+      in_lane = [o for o in vision_obstacles
+                 if abs(getattr(o, 'y_rel', 99.0)) <= MAX_TRIGGER_DPATH_M]
+      if in_lane:
+        nearest_vis = min(in_lane, key=lambda o: getattr(o, 'd_rel', 99.0))
+        # 虚拟 lead 只与雷达 lead 取更近者; 雷达已有更近前车时视觉不叠加
+        if (lead_cur is None
+            or nearest_vis.d_rel < float(getattr(lead_cur, 'dRel', 99.0))):
+          class _VirtualLead:
+            __slots__ = ('dRel', 'dPath', 'vRel', 'vLead')
+          vlead = _VirtualLead()
+          vlead.dRel = float(nearest_vis.d_rel)
+          vlead.dPath = float(nearest_vis.y_rel)
+          vlead.vRel = -3.0  # 视为静止/极慢(行人/动物不会快速让开)
+          vlead.vLead = 0.0
+          lead_cur = vlead
+
     # 状态机推进(结果由 detector.is_active()/estimate() 读取)
     self.detector.update(lead_cur, cs, now=now)
 
