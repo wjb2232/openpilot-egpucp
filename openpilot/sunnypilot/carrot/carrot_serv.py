@@ -34,6 +34,7 @@ from typing import Any
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.swaglog import cloudlog
 from openpilot.sunnypilot.carrot.config import UnifiedParams
+from openpilot.sunnypilot.carrot.radar_motion.avoidance import ObstacleAvoidance
 
 
 # Countdown rearm threshold (meters). A jump larger than this means a new
@@ -174,6 +175,9 @@ class CarrotServ:
 
   def __init__(self, params: UnifiedParams | None = None) -> None:
     self._params = params or UnifiedParams()
+    # 主动避障(阶段1限速 + 阶段3自动绕行/超车请求),与 egpucp 树同构
+    self.obstacle_avoidance = ObstacleAvoidance()
+    self._sd = None  # AmapNaviServ.shared_data,set_shared_data() 注入
 
     # Cached navi state.
     self._raw: dict[str, object] = {}
@@ -1688,6 +1692,11 @@ class CarrotServ:
       # Never let a navInstruction problem abort tick(); this runs every frame.
       cloudlog.warning(f"carrot_serv: failed to read stock navInstruction: {e}")
 
+  def set_shared_data(self, sd) -> None:
+    """Inject AmapNaviServ.shared_data (blind spot / four-corner lidar) for
+    side-rear safety in the avoidance stage."""
+    self._sd = sd
+
   def update_navi(self, remote_ip: str, sm, pm, vturn_speed: float,
                   coords: list, distances: list, route_speed: float,
                   vturn_dist: float = 0.0) -> None:
@@ -1886,6 +1895,103 @@ class CarrotServ:
     elif self.turn_speed_control_mode == 3:
       speed_n_sources.append((max(route_speed * self.map_turn_speed_factor,
                                   self.auto_curve_speed_lower_limit), "route"))
+
+    # 主动避障(阶段1限速 + 阶段3自动换道/超车)。egpucp 树同构:
+    # 雷达 leadOne 检测本车道静止/低速障碍 -> 限速;侧后安全(盲区+雷达
+    # 点云+模型 laneChangeAvailable)通过后发 LANECHANGE/OVERTAKE 命令,
+    # desire_helper 消费命令打灯,模型执行换道。
+    avoid_active = False
+    try:
+      if self._params.get_bool("AvoidanceEnabled", False) and sm.alive.get("radarState", False):
+        rs_avoid = sm["radarState"]
+        lead_one_avoid = rs_avoid.leadOne if rs_avoid.leadOne.present else None
+        cs_avoid = sm["carState"] if sm.alive.get("carState", False) else None
+        est = self.obstacle_avoidance.update(lead_one_avoid, cs_avoid)
+        if est.active:
+          avoid_active = True
+          speed_n_sources.append((float(est.speed_kph), "avoid"))
+          self.debug_text = getattr(self, "debug_text", "") + f"AV:{est.speed_kph:.0f}/{est.d_rel_m:.0f}m "
+
+        # 侧后安全合成:盲区(一般+激光雷达+摄像头)+ 后向四角点云 + 模型可用性
+        left_blocked: bool | None = None
+        right_blocked: bool | None = None
+        sd_avoid = getattr(self, "_sd", None)
+        if sd_avoid is not None:
+          left_blocked = bool(getattr(sd_avoid, "left_blind", False) or
+                              getattr(sd_avoid, "lidar_left_blind", False) or
+                              getattr(sd_avoid, "camera_left", False))
+          right_blocked = bool(getattr(sd_avoid, "right_blind", False) or
+                               getattr(sd_avoid, "lidar_right_blind", False) or
+                               getattr(sd_avoid, "camera_right", False))
+          # 后向四角点云:lb/rb 有近距目标视为侧后占用
+          for attr in ("lb_drel", "rb_drel"):
+            drel_map = getattr(sd_avoid, attr, None)
+            if isinstance(drel_map, dict):
+              for v in drel_map.values():
+                try:
+                  if float(v) < 45.0:
+                    if attr == "lb_drel":
+                      left_blocked = True
+                    else:
+                      right_blocked = True
+                except (TypeError, ValueError):
+                  continue
+
+        v_ego_kph_avoid = (cs_avoid.vEgo * 3.6) if cs_avoid is not None else 0.0
+        # 换道中判定:模型真实状态(不能靠 carrotCmd,它触后会复位)
+        _lc_active = False
+        try:
+          from openpilot.cereal import log as _log
+          _lc_state = sm["modelV2"].meta.laneChangeState
+          _lc_active = _lc_state != _log.LaneChangeState.off
+        except Exception:
+          _lc_active = False
+        _md = sm["modelV2"] if sm.alive.get("modelV2", False) else None
+        _lav_l = bool(_md.meta.laneChangeAvailableLeft) if _md is not None else None
+        _lav_r = bool(_md.meta.laneChangeAvailableRight) if _md is not None else None
+        # 模型禁止侧也视为 blocked
+        if _lav_l is False:
+          left_blocked = True
+        if _lav_r is False:
+          right_blocked = True
+
+        lc_dir = self.obstacle_avoidance.lane_change_request(
+          v_ego_kph_avoid,
+          left_blocked=left_blocked, right_blocked=right_blocked,
+          lane_change_active=_lc_active,
+        )
+        if lc_dir is not None:
+          self._raw["carrotCmd"] = "LANECHANGE"
+          self._raw["carrotArg"] = lc_dir
+          self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
+          self.debug_text = getattr(self, "debug_text", "") + f"LC-{lc_dir} "
+        elif self._raw.get("carrotCmd") == "LANECHANGE":
+          # 本轮未请求换道:清理悬挂命令(已发送,index 不变不重复触发)
+          self._raw["carrotCmd"] = ""
+          self._raw["carrotArg"] = ""
+
+        # 自动超车(OVERTAKE):前车明显慢 + 目标侧安全。APK 不在线时车端可独立触发。
+        v_lead_kph = None
+        try:
+          if rs_avoid.leadOne.present and rs_avoid.leadOne.status:
+            v_lead_kph = rs_avoid.leadOne.vLead * 3.6
+        except Exception:
+          v_lead_kph = None
+        ot_dir = self.obstacle_avoidance.overtake_request(
+          v_ego_kph_avoid, v_lead_kph,
+          left_blocked=left_blocked, right_blocked=right_blocked,
+          lane_change_active=_lc_active,
+        )
+        if ot_dir is not None:
+          self._raw["carrotCmd"] = "OVERTAKE"
+          self._raw["carrotArg"] = ot_dir
+          self._raw["carrotCmdIndex"] = _safe_int(self._raw.get("carrotCmdIndex"), 0) + 1
+          self.debug_text = getattr(self, "debug_text", "") + f"OT-{ot_dir} "
+        elif self._raw.get("carrotCmd") == "OVERTAKE":
+          self._raw["carrotCmd"] = ""
+          self._raw["carrotArg"] = ""
+    except Exception as e_avoid:
+      cloudlog.warning(f"carrot_serv: avoidance failed: {e_avoid}")
 
     desired_speed, source = min(speed_n_sources, key=lambda x: x[0])
 
