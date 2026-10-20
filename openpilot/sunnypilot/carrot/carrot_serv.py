@@ -2026,10 +2026,12 @@ class CarrotServ:
           dt_av = DT_MDL
         self._avoid_curve_last = now_av
         self.avoid_curvature = float(self.avoidance_curve.update(
-          cs_avoid.vEgo if cs_avoid is not None else 0.0, dt_av, sm,
-          now=now_av, left_blocked=left_blocked, right_blocked=right_blocked,
-          # 模型换道中: 抑制曲线(换道轨迹与曲线叠加打架, 且换道本就在绕行)
-          lane_change_active=_lc_active))
+                  cs_avoid.vEgo if cs_avoid is not None else 0.0, dt_av, sm,
+                  now=now_av, left_blocked=left_blocked, right_blocked=right_blocked,
+                  # 模型换道中: 抑制曲线(换道轨迹与曲线叠加打架, 且换道本就在绕行)
+                  lane_change_active=_lc_active,
+                  # 居中障碍默认绕向: 高速左绕(超车道), 普通路右绕(不借对向道)
+                  highway=(self.n_road_limit_speed >= 80)))
         est = self.obstacle_avoidance.estimate()
         if est is not None:
           speed_n_sources.append((float(est.speed_kph), "avoid"))
@@ -2051,6 +2053,8 @@ class CarrotServ:
           # 注意: 避障换道(LANECHANGE)是紧急安全功能, 不受推荐车道暂停抑制;
           # rec_lane_paused 仅抑制主动超车(OVERTAKE), 见下方 OT 调用。
           lane_change_active=_lc_active,
+          # 居中障碍默认绕向: 高速左绕(超车道), 普通路右绕(不借对向道)
+          highway=(self.n_road_limit_speed >= 80),
         )
         if lc_dir is not None:
           self._raw["carrotCmd"] = "LANECHANGE"
