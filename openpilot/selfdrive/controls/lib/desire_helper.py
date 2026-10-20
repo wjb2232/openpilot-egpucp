@@ -87,6 +87,10 @@ class DesireHelper:
     )
     if remote in ('laneLeft', 'laneRight') and self._bt_lane_count == 0:
       self._bt_lane_count = int(0.2 / DT_MDL)  # 200 ms window
+      # 蓝牙灯也设命令窗口: 否则 CarrotAtcBlinkerEnabled 开启时, atc_type
+      # else 分支的 now>=_cmd_blinker_until(0) 恒真, 会把蓝牙灯每帧清掉
+      # (蓝牙灯活不过 1 帧, 换道永不启动)。
+      self._cmd_blinker_until = time.monotonic() + 0.2
     if self._bt_lane_count > 0:
       self._bt_lane_count -= 1
       if remote in ('laneLeft', 'laneRight'):
@@ -171,6 +175,10 @@ class DesireHelper:
             self.carrot_virtual_blinker = 1
           elif carrot_man.carrotArg == "RIGHT":
             self.carrot_virtual_blinker = 2
+          else:
+            # 无效参数: 清灯防旧方向残留(上一帧 LEFT 灯不能因新命令 arg
+            # 无效而继续保持, 否则换道方向错乱)。
+            self.carrot_virtual_blinker = 0
           # 命令灯持灯窗口: 换道从 preLaneChange 到完成需要持续灯源,
           # 窗口内 atc_type else 分支不清灯。完成后由概率回落主动灭灯,
           # 最迟窗口到期自动灭。
