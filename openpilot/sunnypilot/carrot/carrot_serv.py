@@ -1978,6 +1978,10 @@ class CarrotServ:
       if not (self._params.get_bool("AvoidanceEnabled", False) and sm.alive.get("radarState", False)):
         self.avoid_curvature = 0.0
         self.avoid_dist = 0.0
+        # 功能关闭/雷达死时同步重置状态机与曲线, 否则重新开启时曲线
+        # 从关闭前的旧状态恢复(可能突然输出曲率或触发)。
+        self.obstacle_avoidance.reset()
+        self.avoidance_curve.reset()
       # 推荐车道变道暂停(APK 语义): 导航引导(navLaneGuide)长时间不变且车辆
       # 已在推荐车道 -> 暂停主动换道/超车,避免无谓变道;引导变化即恢复。
       rec_lane_paused = self._update_recommended_lane_pause()
