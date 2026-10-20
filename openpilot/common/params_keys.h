@@ -414,6 +414,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // 默认关:开启后 carrot_serv 消费 radarState.leadOne + 侧后盲区,
     // 触发 LANECHANGE/OVERTAKE 命令由 desire_helper 执行。
     {"AvoidanceEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
+    // 自动超车档位(AmapNavi.apk OvertakeSettingActivity 同参):
+    // 1=激进(慢1km/h即超, 距离8~72m, 冷6s), 2=常规(慢10%, 12~80m, 冷10s),
+    // 3=保守(慢20%, 20~60m, 冷15s)。
+    {"OverTakeMode", {PERSISTENT | BACKUP, INT, "2"}},
     // DrivingMode enum (carrot_functions.py): 1=Eco, 2=Safe, 3=Normal, 4=High.
     // The comment here used to read "0=eco,1=normal,2=sport,3=safe", which matches
     // nothing in the enum, and the default was "1" on that mistaken reading - so the

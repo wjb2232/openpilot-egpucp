@@ -51,10 +51,48 @@ LC_SIDE_CLEAR_M = 45.0
 LC_SIDE_CLEAR_Y_M = 5.0
 
 # ---- 自动超车(OVERTAKE)参数 -------------------------------------------- #
-OT_COOLDOWN_S = 12.0
-OT_MIN_SPEED_KPH = 40.0
-OT_MIN_LEAD_KPH = 20.0    # 前车至少 20kph 才超(太低=排队, 不超)
-OT_LEAD_DELTA_KPH = 12.0  # 前车比自车慢至少 12kph 才值得超
+# 三档设置移植自 AmapNavi.apk OvertakeParams(反编译 MainActivityLaneDecisionKt
+# <clinit>, 与手机端 evaluateOvertakeTrigger/Side 同参)。档位由
+# OverTakeMode param 选择: 1=激进/2=常规/3=保守。
+# 构造器参数顺序 (I String F F I F F I I J F I I F F F Z Z J J):
+#   mode, name, triggerMaxDist, triggerMinDist, vrelThreshold, timeGapMax,
+#   cruiseRatio, leadMinSpeedRoad, leadMinSpeedHighWay, cooldownFailedMs,
+#   _?, rearMinDist, sideFrontMinDist, sideMinScore, sideSafetyMargin(bool侧?),
+#   extra, allowRightOvertake, preferLeftFirst, cooldownSuccessMs, _?
+OT_PARAMS = {
+  # 激进: 距离区间8~72m, 前车慢1km/h即超, 高速限15/普通25, 冷成功6s失败400ms, 允许右侧
+  1: {
+    "trigger_min_m": 8.0, "trigger_max_m": 72.0,
+    "vrel_threshold_kph": -1.0,
+    "lead_min_road_kph": 25.0, "lead_min_highway_kph": 15.0,
+    "rear_min_dist_m": 45.0, "side_front_min_dist_m": 5.0,
+    "time_gap_max_s": 4.0, "cruise_ratio": 0.95,
+    "cooldown_success_s": 6.0, "cooldown_failed_s": 0.4,
+    "allow_right_overtake": True, "prefer_left_first": False,
+  },
+  # 常规: 12~80m, 慢3km/h, 高速20/普通35, 冷成功10s失败800ms, 优先左侧
+  2: {
+    "trigger_min_m": 12.0, "trigger_max_m": 80.0,
+    "vrel_threshold_kph": -3.0,
+    "lead_min_road_kph": 35.0, "lead_min_highway_kph": 20.0,
+    "rear_min_dist_m": 60.0, "side_front_min_dist_m": 10.0,
+    "time_gap_max_s": 3.0, "cruise_ratio": 0.90,
+    "cooldown_success_s": 10.0, "cooldown_failed_s": 0.8,
+    "allow_right_overtake": True, "prefer_left_first": True,
+  },
+  # 保守: 20~60m, 慢8km/h, 高速30/普通45, 冷成功15s失败1.2s
+  3: {
+    "trigger_min_m": 20.0, "trigger_max_m": 60.0,
+    "vrel_threshold_kph": -8.0,
+    "lead_min_road_kph": 45.0, "lead_min_highway_kph": 30.0,
+    "rear_min_dist_m": 75.0, "side_front_min_dist_m": 15.0,
+    "time_gap_max_s": 2.0, "cruise_ratio": 0.80,
+    "cooldown_success_s": 15.0, "cooldown_failed_s": 1.2,
+    "allow_right_overtake": True, "prefer_left_first": False,
+  },
+}
+OT_DEFAULT_MODE = 2  # 常规
+OT_MIN_SPEED_KPH = 40.0  # 低于该车速不主动超车(低速排队)
 
 
 @dataclass(frozen=True)
@@ -206,47 +244,70 @@ class ObstacleAvoidance:
     return direction
 
   # ---- 自动超车(OVERTAKE) ---- #
+  def set_overtake_mode(self, mode: int) -> None:
+    """设置超车档位(见 OT_PARAMS): 1=激进/2=常规/3=保守。"""
+    if mode in OT_PARAMS:
+      self.overtake_mode = mode
+
   def overtake_request(self, v_ego_kph: float, v_lead_kph: float | None,
                        left_blocked: bool | None = None,
                        right_blocked: bool | None = None,
                        lane_change_active: bool = False,
+                       highway: bool = False,
                        now: float | None = None) -> str | None:
-    """评估是否应自动超车(前车慢 + 目标侧安全)。返回 "LEFT"/"RIGHT"/None。
+    """评估是否应自动超车, 返回 "LEFT"/"RIGHT"/None。
 
-    与 lane_change_request 的区别: 不要求本车道障碍(不需要 avoidance
-    激活), 只要前车明显慢于巡航(相对巡航车速差 >= OT_LEAD_DELTA_KPH)
-    且持续确认, 目标侧安全即可发起。
+    与 AmapNavi.apk evaluateOvertakeTrigger 同参(按档位):
+      前车低于档位最低速度(高速/普通路分开) -> 疑似排队, 不超;
+      前车相对自车过慢(巡航比例 cruise_ratio) -> 值得超;
+      距离区间(trigger_min~trigger_max)内 -> 可超;
+      目标侧安全(left_blocked/right_blocked 由调用方合成) -> 发起。
+    冷却按档位 cooldown_success_s(成功后)/cooldown_failed_s(失败后, 短),
+    失败冷却由 overtake_result(False) 切换。
     """
     now = time.monotonic() if now is None else now
-    if now - getattr(self, "_ot_last_request", 0.0) < OT_COOLDOWN_S:
+    p = OT_PARAMS.get(getattr(self, "overtake_mode", OT_DEFAULT_MODE), OT_PARAMS[OT_DEFAULT_MODE])
+
+    if v_lead_kph is None:
       return None
-    if lane_change_active:
+    # 档位最低前车速度(排队/拥堵判定), 高速与普通路分开
+    lead_min = p["lead_min_highway_kph"] if highway else p["lead_min_road_kph"]
+    if v_lead_kph < lead_min:
+      return None
+    # 前车相对自车(巡航代理)过慢才值得超
+    if v_lead_kph > v_ego_kph * p["cruise_ratio"]:
       return None
     if v_ego_kph < OT_MIN_SPEED_KPH:
       return None
-    if v_lead_kph is None or v_lead_kph < OT_MIN_LEAD_KPH:
+
+    # 冷却: 成功/失败分开(APK cooldownSuccess/Failed)
+    cooldown = p["cooldown_success_s"] if not getattr(self, "_ot_failed", False) else p["cooldown_failed_s"]
+    if now - getattr(self, "_ot_last_request", 0.0) < cooldown:
       return None
-    # 前车明显慢于自车(相对车速差)才值得超——低速排队不超
-    if (v_ego_kph - v_lead_kph) < OT_LEAD_DELTA_KPH:
+    if lane_change_active:
       return None
 
     left_clear = left_blocked is not True
     right_clear = right_blocked is not True
-    # 障碍反侧优先 + 默认左绕(国内左超车习惯)
-    prefer_left = self._last_y_rel > 0.0
+    # 档位偏好: prefer_left_first 优先左侧; 障碍反侧优先次之
+    prefer_left = p["prefer_left_first"] or self._last_y_rel > 0.0
     if prefer_left and left_clear:
       direction = "LEFT"
-    elif (not prefer_left) and right_clear:
+    elif (not prefer_left) and right_clear and p["allow_right_overtake"]:
       direction = "RIGHT"
     elif left_clear:
       direction = "LEFT"
-    elif right_clear:
+    elif right_clear and p["allow_right_overtake"]:
       direction = "RIGHT"
     else:
       return None
 
     self._ot_last_request = now
     return direction
+
+  def overtake_result(self, success: bool) -> None:
+    """超车结果回馈: 失败 -> 短冷却(快速重试); 成功 -> 长冷却(避免骚扰)。"""
+    self._ot_failed = not success
 
 
 class AvoidanceCurve:
