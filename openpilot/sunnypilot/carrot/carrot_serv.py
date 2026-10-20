@@ -178,6 +178,11 @@ class CarrotServ:
     # 主动避障(阶段1限速 + 阶段3自动绕行/超车请求),与 egpucp 树同构
     self.obstacle_avoidance = ObstacleAvoidance()
     self._sd = None  # AmapNaviServ.shared_data,set_shared_data() 注入
+    # 盲区减速(APK blindDecSpeed 同参): 侧盲区有车时限制速度。
+    self.blind_dec_speed_enabled = False
+    self.blind_dec_speed_offset = 15   # km/h, 盲区有车时 v_ego - offset
+    self.blind_safe_time = 3.0         # s, 盲区消失后维持减速的安全时间
+    self._blind_dec_active_until = 0.0
 
     # Cached navi state.
     self._raw: dict[str, object] = {}
@@ -1013,6 +1018,10 @@ class CarrotServ:
     self.auto_up_highway_road_limit_40kmh = p.get_int("AutoUpHighwayRoadLimit40KMH", 15)
     self.road_type = p.get_int("RoadType", -1)
     self.show_debug_log = p.get_int("ShowDebugLog", 0)
+    # 盲区减速(APK blindDecSpeedEnable/Offset/blindSafeTime 同参)
+    self.blind_dec_speed_enabled = p.get_bool("BlindDecSpeedEnabled", False)
+    self.blind_dec_speed_offset = int(min(60, max(5, p.get_int("BlindDecSpeedOffset", 15))))
+    self.blind_safe_time = float(min(10, max(1, p.get_int("BlindDecSafeTime", 3))))
     self.same_spi_cam_filter = p.get_bool("SameSpiCamFilter", True)
     self.is_metric = p.get_bool("IsMetric", True)
 
@@ -1994,6 +2003,34 @@ class CarrotServ:
           self._raw["carrotArg"] = ""
     except Exception as e_avoid:
       cloudlog.warning(f"carrot_serv: avoidance failed: {e_avoid}")
+
+    # 盲区减速(APK blindDecSpeed 同参): 侧盲区有车(激光/摄像头/原车BSD)
+    # 时限制速度, 盲区消失后维持 blind_safe_time 再恢复(避免反复加减速)。
+    blind_active = False
+    try:
+      if self.blind_dec_speed_enabled and getattr(self, "_sd", None) is not None:
+        sd_b = self._sd
+        now_b = time.monotonic()
+        b_left = bool(getattr(sd_b, "left_blind", False) or getattr(sd_b, "lidar_left_blind", False)
+                      or getattr(sd_b, "camera_left", False) or getattr(sd_b, "lidar_car_left_blind", False))
+        b_right = bool(getattr(sd_b, "right_blind", False) or getattr(sd_b, "lidar_right_blind", False)
+                       or getattr(sd_b, "camera_right", False) or getattr(sd_b, "lidar_car_right_blind", False))
+        # 原车 BSD(carState) 也是盲区减速输入
+        if cs is not None:
+          try:
+            b_left = b_left or bool(cs.leftBlindspot)
+            b_right = b_right or bool(cs.rightBlindspot)
+          except Exception:
+            pass
+        if b_left or b_right:
+          self._blind_dec_active_until = now_b + self.blind_safe_time
+        if now_b < self._blind_dec_active_until:
+          blind_speed = max(0.0, v_ego_kph - self.blind_dec_speed_offset)
+          speed_n_sources.append((blind_speed, "blind"))
+          blind_active = True
+          self.debug_text = getattr(self, "debug_text", "") + f"BL{self.blind_dec_speed_offset} "
+    except Exception as e_blind:
+      cloudlog.warning(f"carrot_serv: blind decel failed: {e_blind}")
 
     desired_speed, source = min(speed_n_sources, key=lambda x: x[0])
 
