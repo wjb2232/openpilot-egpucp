@@ -1410,6 +1410,7 @@ class CarrotManager:
           coords, distances, route_speed = self.carrot_navi_route()
 
           # Update navi
+          self._carrot_serv.set_shared_data(self._amap_navi.shared_data)
           self._carrot_serv.update_navi(remote_ip, self.sm, self.pm, vturn_speed, coords, distances,
                                         route_speed, vturn_dist)
           self._write_navi_debug()

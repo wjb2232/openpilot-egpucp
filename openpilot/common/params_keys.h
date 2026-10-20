@@ -416,6 +416,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"CarrotPanelSide", {PERSISTENT | BACKUP, INT, "0"}},  // carrot nav HUD panel side: 0=left, 1=right
     {"CarrotPanelOpacity", {PERSISTENT | BACKUP, INT, "100"}},  // carrot nav HUD panel opacity percent 0-100
     {"LiDARUdpPort", {PERSISTENT | BACKUP, INT, "4211"}},  // LiDAR/camera direct-UDP listen port; dormant until start_navi_comm() is wired (C3 decision)
+    // 主动避障总开关(阶段1限速 + 阶段3自动绕行/超车)。egpucp 树同构,
+    // 默认关:开启后 carrot_serv 消费 radarState.leadOne + 侧后盲区,
+    // 触发 LANECHANGE/OVERTAKE 命令由 desire_helper 执行。
+    {"AvoidanceEnabled", {PERSISTENT | BACKUP, BOOL, "0"}},
     // DrivingMode enum (carrot_functions.py): 1=Eco, 2=Safe, 3=Normal, 4=High.
     // The comment here used to read "0=eco,1=normal,2=sport,3=safe", which matches
     // nothing in the enum, and the default was "1" on that mistaken reading - so the
