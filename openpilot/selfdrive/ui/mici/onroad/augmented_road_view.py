@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pyray as rl
 from openpilot.cereal import log
@@ -21,6 +23,7 @@ from openpilot.common.params import Params
 from openpilot.common.filter_simple import BounceFilter
 from openpilot.common.transformations.camera import DEVICE_CAMERAS, DeviceCameraConfig, view_frame_from_device_frame
 from openpilot.common.transformations.orientation import rot_from_euler
+from openpilot.selfdrive.modeld.camera_calibration import CalibrationCache, compose_camera_euler
 from enum import IntEnum
 
 if gui_app.sunnypilot_ui():
@@ -150,6 +153,9 @@ class AugmentedRoadView(CameraView):
     self.device_camera: DeviceCameraConfig | None = None
     self.view_from_calib = view_frame_from_device_frame.copy()
     self.view_from_wide_calib = view_frame_from_device_frame.copy()
+    self._is_webcam = False
+    self._cam_calib = None
+    self._cam_calib_cache = CalibrationCache()
 
     self._matrix_cache_key: tuple | None = None
     self._cached_matrix: np.ndarray | None = None
@@ -345,6 +351,13 @@ class AugmentedRoadView(CameraView):
     sm = ui_state.sm
     if not self.device_camera and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       self.device_camera = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
+      self._is_webcam = str(sm['narrowRoadCameraState'].sensor) == 'unknown'
+    # 自进化内参/外参(与 modeld 同一来源): webcam 时读取 CamCalib 覆盖
+    if self._is_webcam:
+      try:
+        self._cam_calib = self._cam_calib_cache.resolve(self._params, self.device_camera, time.monotonic())
+      except Exception:
+        self._cam_calib = None
 
     # Check if camera calibration data is available and valid
     if not (sm.updated["extrinsicsCalibration"] and sm.valid['extrinsicsCalibration']):
@@ -378,8 +391,29 @@ class AugmentedRoadView(CameraView):
     # Get camera configuration
     device_camera = self.device_camera or DEFAULT_DEVICE_CAMERA
     is_wide_camera = self.stream_type == WIDE_CAM
-    intrinsic = device_camera.wide_road.intrinsics if is_wide_camera else device_camera.narrow_road.intrinsics
-    calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
+    if self._is_webcam and self._cam_calib is not None:
+      # Webcam: 内参中心用实际流分辨率, f 用 CamCalib(先验 2508/405.2 或进化值),
+      # 外参 pitch_offset 合成到 calibration —— 与 modeld 完全一致, 两路独立。
+      f = self._cam_calib.wide.focal_length if is_wide_camera else self._cam_calib.road.focal_length
+      pitch_off = self._cam_calib.wide.pitch_offset if is_wide_camera else self._cam_calib.road.pitch_offset
+      try:
+        w_f, h_f = self.frame.width, self.frame.height
+      except Exception:
+        w_f, h_f = 1344, 760
+      intrinsic = np.array([[f, 0.0, w_f / 2.0],
+                            [0.0, f, h_f / 2.0],
+                            [0.0, 0.0, 1.0]], np.float32)
+      sm_c = ui_state.sm['extrinsicsCalibration']
+      dev = np.array(sm_c.rpyCalib, np.float32) if len(sm_c.rpyCalib) == 3 else np.zeros(3, np.float32)
+      if is_wide_camera:
+        wide_dev = np.array(sm_c.wideFromDeviceEuler, np.float32) if len(sm_c.wideFromDeviceEuler) == 3 else None
+        euler = compose_camera_euler(dev, wide_dev, pitch_off)
+      else:
+        euler = compose_camera_euler(dev, None, pitch_off)
+      calibration = view_frame_from_device_frame @ rot_from_euler(euler)
+    else:
+      intrinsic = device_camera.wide_road.intrinsics if is_wide_camera else device_camera.narrow_road.intrinsics
+      calibration = self.view_from_wide_calib if is_wide_camera else self.view_from_calib
     if is_wide_camera:
       zoom = 0.7 * 1.5
     else:
