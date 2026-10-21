@@ -2057,10 +2057,12 @@ class CarrotServ:
         vision_obs = []
         try:
           if self.vision_detector is not None:
-            from msgq.visionipc import VisionIpcClient, VisionStreamType
+            from msgq.visionipc import VisionIpcClient
+            # 两版 msgq 接口: 新版暴露 VisionStreamType 枚举, 旧版(132 pyx)
+            # 是 uint32 ctypedef 只收 int。ROAD 枚举值恒为 0, 统一用 int。
             if self._vision_vipc is None and time.monotonic() - self._vision_vipc_tried > 2.0:
               self._vision_vipc_tried = time.monotonic()
-              self._vision_vipc = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_ROAD, False)
+              self._vision_vipc = VisionIpcClient("camerad", 0, False)
               if not self._vision_vipc.connect(False):
                 self._vision_vipc = None
             if self._vision_vipc is not None:
