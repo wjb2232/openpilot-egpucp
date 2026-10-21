@@ -757,13 +757,13 @@ class CarrotManager:
 
   def _update_raw(self, msg: dict[str, Any], recv_mono: float) -> None:
     is_heartbeat = msg.get('carrotCmd') == 'heartbeat'
-    seq = _safe_int(msg.get('carrotIndex'), -1)
 
-    # Heartbeats keep the link alive without advancing sequence state.
-    if not is_heartbeat:
-      if seq >= 0 and self._last_seq is not None and seq < self._last_seq:
-        return
-      self._last_seq = seq
+    # No sequence reordering check here. egpucp (the source this fork was
+    # adapted from) records carrotIndex but never drops packets on it: the
+    # index is an Amap navigation event sequence, not a monotonic counter
+    # (it can reset/reuse), so `seq < last` would silently swallow live
+    # navigation packets - observered as remote_addr updating while every
+    # carrotManSP field stayed empty. Each packet is processed wholesale.
 
     if 'carrotCmd' in msg and not is_heartbeat:
       cloudlog.info(

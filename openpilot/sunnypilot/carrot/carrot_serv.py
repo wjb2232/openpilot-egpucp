@@ -415,10 +415,12 @@ class CarrotServ:
       return
     self._last_packet_mono = recv_mono
 
-    seq = _safe_int(msg.get("carrotIndex"), -1)
-    if seq >= 0 and self._last_seq is not None and seq < self._last_seq:
-      return  # ignore out-of-order packets
-    self._last_seq = seq
+    # No sequence reordering check here. egpucp (the source fork) records
+    # carrotIndex but never drops packets on it: the index is an Amap
+    # navigation event sequence, not a monotonic counter (it can reset /
+    # reuse), so `seq < last` silently swallowed live navigation packets -
+    # observed as remote_addr updating while carrotManSP fields stayed
+    # empty. Each packet is processed wholesale.
 
     raw_limit = _safe_int(msg.get("nRoadLimitSpeed"), 0)
     if raw_limit > 0:
@@ -487,7 +489,7 @@ class CarrotServ:
       "vpPosPointLon": _safe_float(msg.get("vpPosPointLon"), 0.0),
       "nPosAngle": _safe_float(msg.get("nPosAngle"), 0.0),
       "nPosSpeed": _safe_float(msg.get("nPosSpeed"), 0.0),
-      "carrotCmdIndex": seq,
+      "carrotCmdIndex": _safe_int(msg.get("carrotIndex"), 0),
       "carrotCmd": _safe_str(msg.get("carrotCmd"), ""),
       "carrotArg": _safe_str(msg.get("carrotArg"), ""),
       "roadcate": roadcate,
@@ -522,7 +524,7 @@ class CarrotServ:
     }
 
     if "carrotCmd" in msg:
-      self._raw["carrotCmdIndex"] = seq
+      self._raw["carrotCmdIndex"] = _safe_int(msg.get("carrotIndex"), 0)
       self._raw["carrotCmd"] = _safe_str(msg.get("carrotCmd"), "")
       self._raw["carrotArg"] = _safe_str(msg.get("carrotArg"), "")
     else:
@@ -556,7 +558,7 @@ class CarrotServ:
       self._raw["vpPosPointLon"] = self._phone_gps_lon
       self._raw["nPosAngle"] = self._phone_gps_heading
     # Periodic system time sync from the phone's epochTime/timezone.
-    if "epochTime" in msg and seq % 60 == 0:
+    if "epochTime" in msg and _safe_int(msg.get("carrotIndex"), 0) % 60 == 0:
       self._maybe_sync_system_time(_safe_int(msg.get("epochTime"), 0),
                                    _safe_str(msg.get("timezone"), "Asia/Seoul"))
 
