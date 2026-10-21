@@ -7,6 +7,7 @@ See the LICENSE.md file in the root directory for more details.
 
 import asyncio
 import os
+import subprocess
 import time
 
 import requests
@@ -253,6 +254,45 @@ class ModelManagerSP:
     """Processes a single model download including verification"""
     await self._process_artifact(model.artifact, destination_path)
 
+  def _ensure_fp16_plan(self, destination_path: str, source: str) -> None:
+    """Auto-rebuild FP16 TRT plans when the model onnx changed.
+
+    Triggered after any bundle download when this environment runs TRT plans:
+    if any *_trt.plan exists we are in TRT mode, so every onnx in MODELS_DIR
+    (except _fp16in intermediates) is checked against its fixed plan name
+    (modeld looks up big_driving_supercombo_trt.plan / driving_supercombo_trt.plan);
+    a plan older than its onnx (or missing) is rebuilt via auto_build_fp16.sh.
+
+    Runs only offroad: trtexec saturates the GPU for ~10 min, which onroad
+    would starve modeld. Failures are non-fatal (download still activates).
+    """
+    try:
+      if self.params.get_bool("IsOnroad"):
+        cloudlog.info("ModelManagerSP: onroad, skipping FP16 plan build")
+        return
+      from openpilot.selfdrive.modeld.helpers import MODELS_DIR
+
+      # TRT runner in use here? (any plan file existing → yes)
+      plans = list(MODELS_DIR.glob("*_trt.plan"))
+      if not plans:
+        return
+      script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'auto_build_fp16.sh')
+      # modeld only consumes these two onnx names; the *_trt.onnx compiles and
+      # *_fp16in.onnx intermediates must NOT trigger rebuilds
+      for onnx_name, plan_name in (("big_driving_supercombo.onnx", "big_driving_supercombo_trt.plan"),
+                                   ("driving_supercombo.onnx", "driving_supercombo_trt.plan")):
+        onnx = MODELS_DIR / onnx_name
+        if not onnx.exists():
+          continue
+        plan_path = MODELS_DIR / plan_name
+        if plan_path.exists() and plan_path.stat().st_mtime >= onnx.stat().st_mtime:
+          continue  # up to date
+        cloudlog.info(f"ModelManagerSP: building {plan_name} from {onnx_name}")
+        subprocess.run(["bash", script, str(MODELS_DIR), onnx_name, plan_name], check=False,
+                       timeout=3600, capture_output=True)
+    except Exception:
+      cloudlog.exception("ModelManagerSP: FP16 plan build failed (non-fatal)")
+
   def _report_status(self) -> None:
     """Reports current status through messaging system"""
     msg = messaging.new_message('modelManagerSP', valid=True)
@@ -291,6 +331,7 @@ class ModelManagerSP:
       if self._download_interrupted():
         raise DownloadCancelled("Download cancelled")
       self.selected_bundle.status = custom.ModelManagerSP.DownloadStatus.downloaded
+      self._ensure_fp16_plan(destination_path, source)
       self.params.put(ACTIVE_BUNDLE_KEYS[source], model_bundle.to_dict(), block=True)
       self.active_bundle = get_active_bundle(self.params, chestnut=self.chestnut_present)
 
