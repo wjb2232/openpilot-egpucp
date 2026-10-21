@@ -6,6 +6,7 @@ This file is part of sunnypilot and is licensed under the MIT License.
 See the LICENSE.md file in the root directory for more details.
 """
 import asyncio
+import fcntl
 import hashlib
 import json
 import math
@@ -1330,21 +1331,40 @@ class CarrotManager:
     """
     try:
       import ipaddress
-      import psutil
 
       local_ip = self.get_local_ip()
-      ipv4_addrs = [
-        addr
-        for addresses in psutil.net_if_addrs().values()
-        for addr in addresses
-        if addr.family == socket.AF_INET and not addr.address.startswith("127.")
-      ]
-      ipv4_addrs.sort(key=lambda addr: addr.address != local_ip)
-      for addr in ipv4_addrs:
-        if addr.broadcast:
-          return addr.broadcast
-        if addr.netmask:
-          return str(ipaddress.ip_network(f"{addr.address}/{addr.netmask}", strict=False).broadcast_address)
+      # Find the interface that actually carries local_ip (WiFi preferred via
+      # get_local_ip), then compute its broadcast address from its /32 info.
+      # Pure stdlib: psutil is absent on the 132 uv/venv pythons, so the old
+      # psutil.net_if_addrs() path always fell back to 255.255.255.255, which
+      # made the discovery beacon leave the wired NIC while the phone watches
+      # the WiFi segment.
+      seen: set[str] = set()
+      ipv4_addrs = []
+      for name in sorted(os.listdir("/sys/class/net")):
+        if name in seen:
+          continue
+        try:
+          with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            ip = socket.inet_ntoa(fcntl.ioctl(
+              s.fileno(), 0x8915,  # SIOCGIFADDR
+              name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
+          netmask = socket.inet_ntoa(fcntl.ioctl(
+            s.fileno(), 0x891b,  # SIOCGIFNETMASK
+            name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
+        except OSError:
+          continue
+        if not ip.startswith("127."):
+          ipv4_addrs.append((name, ip, netmask))
+          seen.add(name)
+      ipv4_addrs.sort(key=lambda x: x[1] != local_ip)
+      for _name, ip, netmask in ipv4_addrs:
+        try:
+          net = ipaddress.ip_network(f"{ip}/{netmask}", strict=False)
+          if net.broadcast_address:
+            return str(net.broadcast_address)
+        except Exception:
+          continue
     except Exception as e:
       cloudlog.error(f"carrot_man: failed to resolve broadcast address: {e}")
     return "255.255.255.255"
@@ -1357,15 +1377,24 @@ class CarrotManager:
     会返回有线 IP,导致 7705 广播通告的地址在两张网卡间跳,手机学到的
     车端地址一会 192.168.1.132 一会 192.168.8.4,发包目标随之漂移。
     手机实际走 WiFi 段,固定通告 WiFi 地址(名称以 wl 开头的接口)。
+    纯标准库实现(/sys/class/net + SIOCGIFADDR):psutil 在 132 的
+    uv python3.12 与 .venv 中均缺失,import 失败被吞后本函数退化,
+    get_local_ip 回落默认路由,WiFi 固定从未生效。
     """
+    import fcntl
     try:
-      import psutil
-      for name, addrs in psutil.net_if_addrs().items():
+      for name in sorted(os.listdir("/sys/class/net")):
         if not name.startswith("wl"):
           continue
-        for addr in addrs:
-          if addr.family == socket.AF_INET and not addr.address.startswith("127."):
-            return (name, addr.address)
+        try:
+          with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            ip = socket.inet_ntoa(fcntl.ioctl(
+              s.fileno(), 0x8915,  # SIOCGIFADDR
+              name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
+          if ip and not ip.startswith("127."):
+            return (name, ip)
+        except OSError:
+          continue
     except Exception:
       pass
     return None
