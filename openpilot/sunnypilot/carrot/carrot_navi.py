@@ -10,6 +10,7 @@ import copy
 import errno
 import ipaddress
 import json
+import os
 import secrets
 import socket
 import struct
@@ -127,6 +128,22 @@ CLEAR_REASONS = {
 def detect_advertise_ip(bind_host: str) -> str:
   if bind_host not in ("", "0.0.0.0", "::"):
     return bind_host
+  # 132 双网卡:手机走 WiFi 段。connect(8.8.8.8) 走默认路由会返回有线
+  # 192.168.1.132,与 carrot_man 修复后的 7705 通告(8.4)打架,手机学到的
+  # 车端地址两 IP 间跳。纯 stdlib 枚举 wl* 接口固定 WiFi 地址。
+  try:
+    import fcntl
+    for name in sorted(os.listdir("/sys/class/net")):
+      if not name.startswith("wl"):
+        continue
+      with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        ip = socket.inet_ntoa(fcntl.ioctl(
+          s.fileno(), 0x8915,  # SIOCGIFADDR
+          name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
+      if ip and not ip.startswith("127."):
+        return ip
+  except Exception:
+    pass
   probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
   try:
     probe.connect(("8.8.8.8", 80))
@@ -187,6 +204,11 @@ def _engaged_default() -> bool:
 class CarrotNaviDiscoveryBeacon:
   def __init__(self, advertise_ip: str | None = None, interval_s: float = DISCOVERY_INTERVAL_S,
                port: int = DEFAULT_PORT, peers=None, active_provider=None) -> None:
+    # None → 固定通告 WiFi 地址(双网卡防漂移):detect_advertise_ip 已修成枚举 wl*
+    # 接口。若不固定,discovery_targets(None) 会对每张网卡各发一份广播,手机学到
+    # 的 7705 通告地址在 132/8.4 间跳,回连的 7706 目标随之漂移(用户反馈过)。
+    if advertise_ip in (None, "", "0.0.0.0", "::"):
+      advertise_ip = detect_advertise_ip(DEFAULT_HOST)
     self.advertise_ip = advertise_ip
     self.interval_s = max(0.2, float(interval_s))
     self._port = int(port)
