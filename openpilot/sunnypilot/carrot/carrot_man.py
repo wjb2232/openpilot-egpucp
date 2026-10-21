@@ -1349,9 +1349,9 @@ class CarrotManager:
             ip = socket.inet_ntoa(fcntl.ioctl(
               s.fileno(), 0x8915,  # SIOCGIFADDR
               name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
-          netmask = socket.inet_ntoa(fcntl.ioctl(
-            s.fileno(), 0x891b,  # SIOCGIFNETMASK
-            name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
+            netmask = socket.inet_ntoa(fcntl.ioctl(
+              s.fileno(), 0x891b,  # SIOCGIFNETMASK
+              name.encode("utf-8")[:15].ljust(256, b"\0"))[20:24])
         except OSError:
           continue
         if not ip.startswith("127."):
