@@ -1349,8 +1349,34 @@ class CarrotManager:
       cloudlog.error(f"carrot_man: failed to resolve broadcast address: {e}")
     return "255.255.255.255"
 
+  def _wifi_interface(self) -> tuple[str, str] | None:
+    """Return (interface_name, ipv4) of the WiFi NIC, or None.
+
+    132 双网卡:有线 enP1p1s0(192.168.1.132, 默认路由 metric 100 优先)+
+    WiFi wlP7p1s0(192.168.8.4, metric 600)。connect(8.8.8.8) 走默认路由
+    会返回有线 IP,导致 7705 广播通告的地址在两张网卡间跳,手机学到的
+    车端地址一会 192.168.1.132 一会 192.168.8.4,发包目标随之漂移。
+    手机实际走 WiFi 段,固定通告 WiFi 地址(名称以 wl 开头的接口)。
+    """
+    try:
+      import psutil
+      for name, addrs in psutil.net_if_addrs().items():
+        if not name.startswith("wl"):
+          continue
+        for addr in addrs:
+          if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+            return (name, addr.address)
+    except Exception:
+      pass
+    return None
+
   def get_local_ip(self) -> str:
-    """Get local IP address by connecting to external server."""
+    """Get local IP address. Prefers the WiFi interface (the phone link) so the
+    UDP 7705 discovery beacon and carrotManSP carry one stable address; falls
+    back to the default-route interface when no WiFi NIC is present."""
+    wifi = self._wifi_interface()
+    if wifi is not None and wifi[1] != "0.0.0.0":
+      return wifi[1]
     import errno
     try:
       with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
