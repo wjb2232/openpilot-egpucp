@@ -73,6 +73,10 @@ def beep(started: bool, params: Params, CP: car.CarParams) -> bool:
 def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
   return True
 
+
+def l5_sidecar_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
+  return os.getenv("L5_SIDECAR_ENABLED", "0") == "1"
+
 def builtin_display(started: bool, params: Params, CP: car.CarParams) -> bool:
   return HARDWARE.has_builtin_display()
 
@@ -126,6 +130,11 @@ def use_sunnylink_uploader_shim(started, params, CP: car.CarParams) -> bool:
 
 def is_tinygrad_model(started, params, CP: car.CarParams) -> bool:
   """Check if the active model runner is tinygrad."""
+  if not os.path.exists("/dev/kgsl-3d0"):
+    # tinygrad's QCOM backend needs the Qualcomm KGSL device node; tegra-ubuntu
+    # (Jetson Orin) has none, so a tinygrad-labeled bundle cannot run here.
+    # TRT direct-inference modeld is the backend on this platform instead.
+    return False
   return bool(get_active_model_runner(params, not started) == custom.ModelManagerSP.Runner.tinygrad)
 
 def is_stock_model(started, params, CP: car.CarParams) -> bool:
@@ -429,3 +438,5 @@ if os.path.exists("../../third_party/copyparty/copyparty-sfx.py"):
   procs += [NativeProcess("copyparty-sfx", "openpilot/third_party/copyparty", ["./copyparty-sfx.py", *copyparty_args], and_(only_offroad, use_copyparty))]
 
 managed_processes = {p.name: p for p in procs}
+# L5 sidecar entry
+managed_processes["l5_sidecar"] = NativeProcess("l5_sidecar", "/data/orinagx", ["./launch/l5/start_device_sidecar.sh", "60"], l5_sidecar_enabled)

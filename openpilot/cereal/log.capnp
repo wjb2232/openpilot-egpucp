@@ -1,3 +1,18 @@
+# L5 final arbiter decision.
+struct L5FinalDecision {
+  version @0 :Text;
+  frameId @1 :UInt64;
+  timestampNs @2 :UInt64;
+  source @3 :Text;
+  mode @4 :Text;
+  targetSpeedMps @5 :Float32;
+  targetAccelMps2 @6 :Float32;
+  steeringAngleDeg @7 :Float32;
+  reason @8 :Text;
+  riskScore @9 :Float32;
+  allowAutoResume @10 :Bool;
+}
+
 using Cxx = import "/include/c++.capnp";
 $Cxx.namespace("cereal");
 
@@ -826,6 +841,8 @@ struct SelfdriveState {
   # configurable driving settings
   experimentalMode @10 :Bool;
   personality @11 :LongitudinalPersonality;
+  # C3/Carrot rear-camera hold distance clock.
+  distanceTraveled @14 :Float32;
 
   enum AudibleAlert {
     none @0;
@@ -2593,6 +2610,7 @@ struct Event {
     # microphone data
     soundPressure @103 :SoundPressure;
     rawAudioData @147 :AudioData;
+  l5FinalDecision @154 :L5FinalDecision;
 
     # systems stuff
     operatingSystemLog @20 :OperatingSystemLogEntry;

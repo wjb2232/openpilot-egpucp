@@ -630,6 +630,8 @@ class SelfdriveD(CruiseHelper):
     ss.alertSound = self.AM.current_alert.audible_alert
     ss.alertHudVisual = self.AM.current_alert.visual_alert
 
+    ss.distanceTraveled = float(self.distance_traveled)
+
     self.pm.send('selfdriveState', ss_msg)
 
     # onroadEvents - logged every second or on change

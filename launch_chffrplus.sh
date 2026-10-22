@@ -767,7 +767,10 @@ launch() {
   fi
 
   sudo mkdir -p /cache/tsk
-  sudo chown comma:comma /cache/tsk
+  # tegra-ubuntu has no comma user; only chown when it exists
+  if id comma >/dev/null 2>&1; then
+    sudo chown comma:comma /cache/tsk
+  fi
 
   # AGNOS-specific hardware detection (slow on first boot, cached afterwards)
   [ -f /AGNOS ] && { set_tici_hw; set_lite_hw; }

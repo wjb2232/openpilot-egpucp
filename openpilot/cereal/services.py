@@ -19,6 +19,7 @@ class Service:
 
 
 _services: dict[str, tuple] = {
+  "l5FinalDecision": (True, 10., 1),
   # service: (should_log, frequency, qlog decimation (optional))
   # note: the "EncodeIdx" packets will still be in the log
   "gyroscope": (True, 104., 104),

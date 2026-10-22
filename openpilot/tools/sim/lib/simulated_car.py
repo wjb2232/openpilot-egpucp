@@ -104,7 +104,7 @@ class SimulatedCar:
     try:
       self.send_can_messages(simulator_state)
 
-      if self.idx % 50 == 0: # only send panda states at 2hz
+      if self.idx % 10 == 0: # panda states at 10Hz, matches services.py declaration (hardwared startup gate needs it)
         self.send_panda_state(simulator_state)
 
       self.idx += 1

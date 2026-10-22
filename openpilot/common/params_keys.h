@@ -6,6 +6,13 @@
 #include "openpilot/cereal/gen/cpp/log.capnp.h"
 
 inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
+    {"L5Enabled", {PERSISTENT, BOOL, "false"}},
+    {"L5SidecarEnabled", {PERSISTENT, BOOL, "false"}},
+    {"L5ControlEnabled", {PERSISTENT, BOOL, "false"}},
+    {"L5ReplayMode", {PERSISTENT, BOOL, "false"}},
+    {"L5ModelDir", {PERSISTENT, STRING, "/data/models/l5"}},
+    {"L5Route", {PERSISTENT, STRING, ""}},
+
     {"AccessToken", {CLEAR_ON_MANAGER_START | DONT_LOG, STRING}},
     {"AdbEnabled", {PERSISTENT | BACKUP, BOOL}},
     {"AlwaysOnDM", {PERSISTENT | BACKUP, BOOL}},
