@@ -50,7 +50,9 @@ class Controls(ControlsExt):
                                    'driverMonitoringState', 'onroadEvents', 'driverAssistance',
                                    # carrot navigation state, surfaced on HUDControl for brand
                                    # controllers that show it (Hyundai camera-deceleration haptic).
-                                   'carrotManSP'] + self.sm_services_ext,
+                                   'carrotManSP',
+                                   # L5 sidecar governed decision (op_patch 0004)
+                                   'l5FinalDecision'] + self.sm_services_ext,
                                   poll='selfdriveState')
     self.pm = messaging.PubMaster(['carControl', 'controlsState'] + self.pm_services_ext)
 
@@ -289,11 +291,45 @@ class Controls(ControlsExt):
     cc_send.carControl = CC
     self.pm.send('carControl', cc_send)
 
+  def _apply_l5_override(self, CC):
+    """L5 决策覆盖 (op_patch 0004, gated by L5ControlEnabled).
+
+    仅当 L5ControlEnabled=1 且 l5FinalDecision 新鲜时生效:
+      - ODD 内 (cruise): 用 L5 的目标加速度/转向覆盖 c3
+      - 危险 (mrc / emergency_brake): 强制-2m/s² 制动 + 转向归零 (最小风险)
+    其余情况 (stop/默认): 不覆盖, 维持 c3 自身控制。
+    """
+    try:
+      if not self.params.get_bool("L5ControlEnabled"):
+        return
+      if not self.sm.valid.get("l5FinalDecision", False):
+        return
+      dec = self.sm["l5FinalDecision"]
+      mode = str(dec.mode or "")
+      if mode == "mrc" or mode == "emergency_brake":
+        # 最小风险制动: 全力减速度 + 转向归零
+        CC.actuators.accel = -2.0
+        CC.actuators.torque = 0.0
+        CC.actuators.steeringAngleDeg = 0.0
+        CC.latActive = False
+      elif mode == "cruise":
+        # ODD 内正常巡航: 目标加速度/转向由 L5 给出
+        CC.actuators.accel = float(getattr(dec, "targetAccelMps2", 0.0) or 0.0)
+        steer_deg = float(getattr(dec, "steeringAngleDeg", 0.0) or 0.0)
+        if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
+          CC.actuators.steeringAngleDeg = steer_deg
+        else:
+          CC.actuators.torque = steer_deg
+    except Exception:
+      # L5 覆盖失败不影响 c3 自身控制
+      pass
+
   def run(self):
     rk = Ratekeeper(100, print_delay_threshold=None)
     while True:
       self.update()
       CC, lac_log = self.state_control()
+      self._apply_l5_override(CC)
       self.publish(CC, lac_log)
       self.get_params_sp(self.sm)
       self.run_ext(self.sm, self.pm)
