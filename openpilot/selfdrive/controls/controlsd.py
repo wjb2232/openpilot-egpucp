@@ -298,9 +298,14 @@ class Controls(ControlsExt):
       - ODD 内 (cruise): 用 L5 的目标加速度/转向覆盖 c3
       - 危险 (mrc / emergency_brake): 强制-2m/s² 制动 + 转向归零 (最小风险)
     其余情况 (stop/默认): 不覆盖, 维持 c3 自身控制。
+    新鲜度硬检查: 决策来源(SIGnal 发布者)停止后 1 秒内不覆盖, 防 stale 决策锁死控制。
     """
     try:
       if not self.params.get_bool("L5ControlEnabled"):
+        return
+      # 新鲜度硬检查: recv_time 距今超过 1s 视为 L5 已断联, 立即归还 c3 控制 (防 stale 覆盖)
+      import time as _t
+      if _t.monotonic() - self.sm.recv_time.get("l5FinalDecision", 0.0) > 1.0:
         return
       if not self.sm.valid.get("l5FinalDecision", False):
         return
