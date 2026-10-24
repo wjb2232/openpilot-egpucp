@@ -43,6 +43,7 @@ from .features import tools as tools_feature
 from .features import unsupported as unsupported_feature
 from .features import vision_diag as vision_diag_feature
 from .features import vision_test as vision_test_feature
+from .features import l5 as l5_feature
 from .features import web_settings as web_settings_feature
 from .features import web_sound as web_sound_feature
 from .features import ws as ws_feature
@@ -112,6 +113,7 @@ def create_app(params=None) -> web.Application:
   vision_diag_feature.register(app)
   web_sound_feature.register(app)
   bluetooth_feature.register(app)
+  l5_feature.register(app)
   camera_feature.register(app)
   lan_services_feature.register(app)
   # The 5080 webui daemon's API (model manager, vehicle selection), pass-through.

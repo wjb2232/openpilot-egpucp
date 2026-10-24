@@ -560,6 +560,20 @@
      "params": [
       "SoftwareMenu"
      ]
+    },
+    {
+     "id": "SYS_L5",
+     "ko": "L5 통합",
+     "en": "L5 Integration",
+     "zh": "L5 融合",
+     "params": [
+      "L5Enabled",
+      "L5SidecarEnabled",
+      "L5ControlEnabled",
+      "L5ReplayMode",
+      "L5ModelDir",
+      "L5Route"
+     ]
     }
    ]
   },
@@ -6499,6 +6513,96 @@
    "cdescr": "模型目录 JSON 的获取方式：直连 / jsDelivr 兜底 / 代理前缀。",
    "default": "",
    "type": "str"
+  },
+  {
+   "group": "시스템",
+   "name": "L5Enabled",
+   "title": "L5 전체 사용(0)",
+   "descr": "L5 통합 사용 여부",
+   "egroup": "L5",
+   "etitle": "L5 Master Enabled(0)",
+   "edescr": "Enable L5 integration",
+   "cgroup": "系统",
+   "ctitle": "L5 总开关(0)",
+   "cdescr": "启用 L5 融合",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "시스템",
+   "name": "L5SidecarEnabled",
+   "title": "L5 sidecar 프로세스(0)",
+   "descr": "L5 sidecar 상주 프로세스 (manager)",
+   "egroup": "L5",
+   "etitle": "L5 Sidecar Process(0)",
+   "edescr": "L5 sidecar resident process",
+   "cgroup": "系统",
+   "ctitle": "L5 sidecar 进程(0)",
+   "cdescr": "L5 sidecar 常驻进程 (manager 拉起)",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "시스템",
+   "name": "L5ControlEnabled",
+   "title": "L5 제어 오버라이드(0)",
+   "descr": "L5 결정이 c3 제어를 덮어씀 (주행 중 위험)",
+   "egroup": "L5",
+   "etitle": "L5 Control Override(0)",
+   "edescr": "L5 decision overrides c3 control (dangerous on road)",
+   "cgroup": "系统",
+   "ctitle": "L5 决策覆盖控制(0)",
+   "cdescr": "L5 决策覆盖 c3 控制 (上车必须关闭!)",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "시스템",
+   "name": "L5ReplayMode",
+   "title": "L5 리플레이 모드(0)",
+   "descr": "L5 리플레이 모드",
+   "egroup": "L5",
+   "etitle": "L5 Replay Mode(0)",
+   "edescr": "L5 replay mode",
+   "cgroup": "系统",
+   "ctitle": "L5 回放模式(0)",
+   "cdescr": "L5 回放模式",
+   "min": 0,
+   "max": 1,
+   "default": 0,
+   "unit": 1
+  },
+  {
+   "group": "시스템",
+   "name": "L5ModelDir",
+   "title": "L5 모델 디렉터리",
+   "descr": "L5 모델 경로",
+   "egroup": "L5",
+   "etitle": "L5 Model Dir",
+   "edescr": "L5 model directory",
+   "cgroup": "系统",
+   "ctitle": "L5 模型目录",
+   "cdescr": "L5 模型目录",
+   "default": "/data/models/l5"
+  },
+  {
+   "group": "시스템",
+   "name": "L5Route",
+   "title": "L5 경로(JSON)",
+   "descr": "L5 경로 (JSON)",
+   "egroup": "L5",
+   "etitle": "L5 Route(JSON)",
+   "edescr": "L5 route JSON",
+   "cgroup": "系统",
+   "ctitle": "L5 路线(JSON)",
+   "cdescr": "L5 路线 (JSON)",
+   "default": ""
   }
  ],
  "_generated": {

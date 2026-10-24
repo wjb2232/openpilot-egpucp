@@ -48,3 +48,9 @@ export UI_HEIGHT=1080
 export DISPLAY=:0
 export XAUTHORITY=/run/user/1000/gdm/Xauthority
 export UNDECORATED=1
+
+# --- L5 sidecar (常驻, 由 manager 守护) ---
+# export L5_SIDECAR_ENABLED=1
+# export L5_SIDECAR_ENABLED=0  # 需要 L5 常驻时取消注释并改 1
+# export L5_ALLOW_STUB_INFERENCE=1
+# export L5_ALLOW_STUB_INFERENCE=1  # 需要 L5 stub 推理时取消注释

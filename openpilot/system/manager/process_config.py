@@ -75,7 +75,15 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 
 
 def l5_sidecar_enabled(started: bool, params: Params, CP: car.CarParams) -> bool:
-  return os.getenv("L5_SIDECAR_ENABLED", "0") == "1"
+  # 环境变量(launch_env.sh)或 Params(Web 设置菜单)任一启用即拉起 sidecar。
+  # 这样 7000 页面的 L5SidecarEnabled 开关可热生效: manager 在下一个进程重检周期
+  # (数秒)自动拉起/停止 l5_sidecar, 无需重启整栈。
+  if os.getenv("L5_SIDECAR_ENABLED", "0") == "1":
+    return True
+  try:
+    return params.get_bool("L5SidecarEnabled")
+  except Exception:
+    return False
 
 def builtin_display(started: bool, params: Params, CP: car.CarParams) -> bool:
   return HARDWARE.has_builtin_display()
