@@ -520,6 +520,18 @@
                 ],
                 category: "盲区风险评估(激光)"
             },
+            "LidarKeepStandstillBlind": {
+                chineseName: "静止时保留盲区",
+                defaultValue: 1,
+                description: "本车停住时是否仍然显示激光盲区；1=保留，0=静止时清掉",
+                inputRange: [0, 1],
+                uiType: "select",
+                options: [
+                    { value: 0, text: "静止时清掉盲区" },
+                    { value: 1, text: "静止时保留盲区" }
+                ],
+                category: "盲区风险评估(激光)"
+            },
             "LaneLineDelayTime": {
                 chineseName: "实线阻止变道延时(x0.1s)",
                 defaultValue: 10,

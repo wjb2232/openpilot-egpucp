@@ -136,6 +136,10 @@ class UnifiedParams:
             "StockBlinkerCtrl": 0,
             "DynamicBlindRange": 0,
             "DynamicBlindDistance": 0,
+            # 静止（车速为 0）时是否保留激光盲区。
+            # 1 = 保留（默认）：停车/等灯时侧方来车照样报
+            # 0 = 屏蔽：静止时四角盲区一律清掉
+            "LidarKeepStandstillBlind": 1,
             "DisableBlindSpot": 0,
             "EnableCruiseStateShow": 0,
 
