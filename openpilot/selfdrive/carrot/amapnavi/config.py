@@ -132,7 +132,7 @@ class UnifiedParams:
         """
         return {
             "ShowDebugLog": 0,
-            "LogDebugData": 1,            # 1 = 把雷达原始量与判定结果写 /data/amapnavi_debug/
+            "LogDebugData": 0,            # 1 = 把雷达原始量与判定结果写 /data/amapnavi_debug/（默认关，实测复盘时再开）
             "StockBlinkerCtrl": 0,
             "DynamicBlindRange": 0,
             "DynamicBlindDistance": 0,
