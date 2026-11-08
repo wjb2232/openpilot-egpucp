@@ -149,9 +149,9 @@ class UnifiedParams:
 
             "LidarBsdDelayTime": 5,           # x0.1s -> 0.5s
             "LidarFrontVDistTime": -30,        # x0.1m -> 绝对距离 3.0m
-            "LidarFrontVRelDistTime": 20,      # x0.1s -> 2.0s
+            "LidarFrontVRelDistTime": 30,      # x0.1s -> 3.0s
             "LidarBehindVDistTime": -80,       # x0.1m -> 绝对距离 8.0m
-            "LidarBehindVRelDistTime": 20,     # x0.1s -> 2.0s
+            "LidarBehindVRelDistTime": 30,     # x0.1s -> 3.0s
             "LaneLineDelayTime": 10,
 
             # 风险评估阈值不在这里配：最小间距 4.0m、TTC 阈值 2.5s 固定写在
