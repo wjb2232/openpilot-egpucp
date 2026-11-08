@@ -9,7 +9,7 @@
 
 每行一个 JSON 对象。``ty`` 区分记录类型，字段名刻意用短名压体积：
 
-  ty="hb"  1Hz 心跳：车速、外挂设备在线、动态盲区开关
+  ty="hb"  1Hz 心跳：车速、外挂设备在线、动态盲区开关、原车雷达是否在线
   ty="sf"  原车前雷达单侧：``radarState.leadLeft/leadRight`` 的原始
            dRel/yRel/vRel/vLead + ``evaluate_side`` 的完整判定 + 最终标志
   ty="ld"  激光雷达单角：去抖后的 drel/vrel、``side_object_risky`` 的
@@ -19,7 +19,8 @@
 
 字段对照::
 
-  sf: side  d=dRel(m)  y=yRel(m)  vr=vRel(m/s)  vl=vLead(m/s)  pre=present
+  sf: side  d=dRel(m)  y=yRel(m)  vr=vRel(m/s)  vl=vLead(m/s)
+      pre=有目标(present/status)  rd=radarState 是否在线（仅 hb）
       raw=判定  act=去抖后  rs=reason  cl=clearance(m)  ttc=ttc(s)
       lat=lateral(m)  ve=vEgo(m/s)  fin=最终 leftFrontBlind/rightFrontBlind
 
@@ -143,7 +144,8 @@ class DebugLogger:
 
   # ---------------------------------------------------------------- 记录类型
   def heartbeat(self, v_ego, left_device, right_device,
-                dynamic_range, dynamic_distance, now=None) -> None:
+                dynamic_range, dynamic_distance, now=None,
+                radar_alive=None) -> None:
     """1Hz 心跳：确认"当时参数是什么、设备在不在"，缺了它事后没法判读。"""
     if not self.enabled:
       return
@@ -151,7 +153,7 @@ class DebugLogger:
     if now - self._last_hb < HEARTBEAT_S:
       return
     self._last_hb = now
-    self._write({
+    rec = {
       "ty": "hb",
       "t": round(now, 3),
       "ve": round(_num(v_ego) or 0.0, 2),
@@ -159,13 +161,27 @@ class DebugLogger:
       "devR": int(bool(right_device)),
       "dbr": int(dynamic_range),
       "dbd": int(dynamic_distance),
-    })
+    }
+    if radar_alive is not None:
+      # 原车雷达（radard）是否在线：区分"没雷达"和"有雷达但一直没侧前目标"
+      rec["rd"] = int(bool(radar_alive))
+    self._write(rec)
 
   def stock(self, side, lead, decision, v_ego, final=None) -> None:
     """原车前雷达单侧一帧。只在确实有目标时写，避免空行灌满文件。"""
     if not self.enabled:
       return
-    present = bool(getattr(lead, "present", False)) if lead is not None else False
+    # 上游 capnp 的字段名是 ``present``，但有些分支同步过来的 cereal 较旧，
+    # LeadData 里只有旧字段 ``status``（实测两台设备就不一样）。这里两个都认，
+    # 否则那一类日志会一条都写不出来——表现为"雷达明明在工作，日志却是空的"。
+    present = False
+    if lead is not None:
+      for key in ("present", "status"):
+        try:
+          present = bool(getattr(lead, key))
+          break
+        except AttributeError:
+          continue
     if not present:
       return
     rec = {

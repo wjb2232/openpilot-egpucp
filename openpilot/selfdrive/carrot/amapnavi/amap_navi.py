@@ -261,7 +261,8 @@ class AmapNaviServ:
     shared = self.shared_data
     try:
       lg.heartbeat(shared.v_ego_m, shared.lidar_l, shared.lidar_r,
-                   self.dynamicBlindRange, self.dynamicBlindDistance)
+                   self.dynamicBlindRange, self.dynamicBlindDistance,
+                   radar_alive=self.sm.alive['radarState'])
 
       # 原车前雷达：leadLeft / leadRight 的原始量 + evaluate_side 判定 + 最终标志
       if self.sm.alive['radarState']:
