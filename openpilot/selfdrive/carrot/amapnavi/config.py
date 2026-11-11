@@ -132,7 +132,7 @@ class UnifiedParams:
         """
         return {
             "ShowDebugLog": 0,
-            "LogDebugData": 1,            # 1 = 把雷达原始量与判定结果写 /data/amapnavi_debug/
+            "LogDebugData": 0,            # 1 = 把雷达原始量与判定结果写 /data/amapnavi_debug/（默认关，实测复盘时再开）
             "StockBlinkerCtrl": 0,
             "DynamicBlindRange": 0,
             "DynamicBlindDistance": 0,
@@ -190,6 +190,19 @@ class UnifiedParams:
             "StockFrontHorizon": 30,      # x0.1s -> 3.0s
             "StockFrontOnTime": 3,        # x0.1s -> 0.3s（置位延时）
             "StockFrontOffTime": 8,       # x0.1s -> 0.8s（清除延时）
+
+            # Carrot Web 导航搜索（carrot_server 直接读 nav_params.json）。
+            #   NavSearchProvider: auto / amap / baidu / mapbox
+            #   auto = 有高德 key 用高德，其次百度，最后 Mapbox
+            #   AmapWebKey 需要「Web服务」类型的 key；BaiduWebAk 是服务端 AK。
+            "NavSearchProvider": "auto",
+            "AmapWebKey": "",
+            "BaiduWebAk": "",
+
+            # navd 路线规划服务（navd 直接读 nav_params.json）。
+            #   NavRouteProvider: auto / amap / mapbox
+            #   auto = 有高德 Web 服务 key 用高德，否则 Mapbox
+            "NavRouteProvider": "auto",
         }
 
     def get_bool(self, key, default=False):

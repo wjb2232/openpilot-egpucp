@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Carrot · 导航搜索</title>
+<style>
+:root{color-scheme:dark;font:16px/1.5 system-ui,"Microsoft YaHei",sans-serif;background:#10151c;color:#ecf0f5}
+*{box-sizing:border-box}
+body{margin:0}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1080px;margin:auto;padding:22px 20px 8px}
+h1{font-size:22px;margin:0}
+a{color:#ffb36b;text-decoration:none}
+main{max-width:1080px;margin:auto;padding:8px 20px 40px;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+section{padding:18px;border:1px solid #33404f;border-radius:14px;background:#18212c}
+form{display:flex;gap:8px}
+input,button{font:inherit;border-radius:9px;padding:12px;border:1px solid #516072;background:#10151c;color:inherit;min-width:0}
+input{width:100%}
+button{cursor:pointer;white-space:nowrap;flex-shrink:0;background:#21303f}
+button:hover:not(:disabled){border-color:#ffa25b}
+button:disabled{opacity:.55;cursor:wait}
+button.primary{background:#ff9f43;color:#12202c;border-color:#ff9f43;font-weight:600}
+button.secondary{background:transparent;color:#aab7c6}
+ul{list-style:none;padding:0;margin:14px 0 0}
+li{margin:8px 0}
+li button{width:100%;text-align:left;white-space:normal;padding:11px 12px}
+li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
+#status{min-height:1.5em;margin:10px 0 0;color:#ffbe7a}
+.hint{margin:6px 0 0;font-size:13px;color:#8fa0b3}
+.current{margin:16px 0 10px;padding:12px;border:1px solid #33404f;border-radius:10px;background:#141c26;font-size:14px;color:#c7d3e0}
+.current b{color:#ecf0f5}
+.frame{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#10151c}
+#map,#sketch,#baseMap{display:block;width:100%;height:100%}
+#baseMap{object-fit:contain;background:#10151c}
+#map[hidden],#sketch[hidden],#baseMap[hidden]{display:none}
+#mapStatus{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:18px;text-align:center;color:#8fa0b3;font-size:14px}
+#mapStatus[hidden]{display:none}
+.credit{margin:8px 0 0;font-size:12px;color:#7b899a}
+.row{display:flex;gap:8px}
+#originBox{margin-top:14px}
+#originBox label{display:block;margin-bottom:6px;font-size:13px;color:#8fa0b3}
+#preview{width:100%;margin:12px 0 8px}
+.options{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:8px 0 0;font-size:13px;color:#aab7c6}
+.options label{display:flex;gap:5px;align-items:center;cursor:pointer}
+.options input{width:auto;padding:0;margin:0;accent-color:#ff9f43}
+@media (max-width:760px){main{grid-template-columns:1fr}header{padding:16px 14px 4px}main{padding:6px 14px 30px}}
+</style></head>
+<body>
+<header><h1>Carrot 导航搜索</h1><a href="/nav_params">参数设置 ↗</a></header>
+<main>
+  <section>
+    <div class="frame">
+      <img id="map" alt="实时路线图" hidden>
+      <img id="baseMap" alt="路线预览底图" hidden>
+      <canvas id="sketch" hidden></canvas>
+      <p id="mapStatus">路线图需要车辆行驶中、有定位并已设置目的地</p>
+    </div>
+    <p id="routeInfo" class="credit"></p>
+    <div class="options">
+      <label>底图
+        <select id="baseProvider" style="background:#262626;color:#fff;border:1px solid #555;border-radius:4px;padding:4px">
+          <option value="amap">高德</option>
+          <option value="mapbox">Mapbox</option>
+          <option value="osm">OSM 离线</option>
+        </select>
+      </label>
+      <label><input id="useBaseMap" type="checkbox" checked>显示底图</label>
+      <label><input id="grayBaseMap" type="checkbox">灰白底图</label>
+    </div>
+    <p class="credit">© 高德地图 · © Mapbox · © OpenStreetMap · © Protomaps</p>
+  </section>
+  <section>
+    <form id="form">
+      <input id="q" type="search" minlength="2" maxlength="200" required autocomplete="off"
+             placeholder="输入目的地，如 天安门 / 加油站">
+      <button id="go" class="primary" type="submit">搜索</button>
+    </form>
+    <p id="status" role="status"></p>
+    <p id="provider" class="hint"></p>
+    <ul id="results"></ul>
+    <div id="current">当前目的地：未设置</div>
+    <div id="originBox">
+      <label for="origin">出发地</label>
+      <div class="row">
+        <input id="origin" type="search" autocomplete="off" placeholder="留空 = 车辆当前定位">
+        <button id="originGo" class="secondary" type="button">搜索出发地</button>
+      </div>
+      <p id="originHint" class="hint">没有定位时，可以先搜索一个出发地</p>
+    </div>
+    <button id="preview" class="primary" type="button">预览路线</button>
+    <button id="clear" class="secondary" type="button">清除目的地</button>
+  </section>
+</main>
+<script>
+(function () {
+  var form = document.getElementById('form');
+  var input = document.getElementById('q');
+  var go = document.getElementById('go');
+  var status = document.getElementById('status');
+  var provider = document.getElementById('provider');
+  var results = document.getElementById('results');
+  var current = document.getElementById('current');
+  var clear = document.getElementById('clear');
+  var map = document.getElementById('map');
+  var mapStatus = document.getElementById('mapStatus');
+  var sketch = document.getElementById('sketch');
+  var frame = document.querySelector('.frame');
+  var routeInfo = document.getElementById('routeInfo');
+  var originInput = document.getElementById('origin');
+  var originGo = document.getElementById('originGo');
+  var originHint = document.getElementById('originHint');
+  var preview = document.getElementById('preview');
+  var baseMap = document.getElementById('baseMap');
+  var useBaseMap = document.getElementById('useBaseMap');
+  var grayBaseMap = document.getElementById('grayBaseMap');
+  var baseProvider = document.getElementById('baseProvider');
+  var mapUrl = null;
+  var mapTimer = null;
+  var baseMapToken = 0;     // 只显示最后一次预览请求对应的底图
+  var baseMapUrl = null;    // 底图 blob URL（fetch 后才能读到后端错误信息）
+  var BASE_NAMES = {amap: '高德底图', mapbox: 'Mapbox 底图', osm: 'OSM 离线底图'};
+  var ROUTE_NAMES = {amap: '高德', mapbox: 'Mapbox'};
+  var route = null;          // 预览回来的路线（无定位时也画得出来）
+  var origin = null;         // 手动选择的出发地
+  var destinationPlace = null;
+  var searchTarget = 'destination';
+
+  function api(path, options) {
+    return fetch('/nav_search/api' + path, options || {}).then(function (response) {
+      return response.text().then(function (text) {
+        var body = {};
+        try { body = text ? JSON.parse(text) : {}; } catch (e) { body = {}; }
+        if (!response.ok) { throw new Error(body.error || ('请求失败 HTTP ' + response.status)); }
+        return body;
+      });
+    });
+  }
+
+  function setStatus(text) { status.textContent = text || ''; }
+
+  // 路线规划来源（高德/Mapbox）和底图来源（高德/Mapbox/OSM 离线）是两件事，
+  // 完成提示必须把两者分开写，否则选 OSM 时还显示「高德」。
+  function refreshPreviewStatus() {
+    if (!route) { return; }
+    setStatus('路线预览完成（路线：' + (ROUTE_NAMES[route.provider] || '未知')
+              + '；底图：' + (BASE_NAMES[baseProvider.value] || '底图') + '）');
+  }
+
+  function label(place) {
+    return place.place_name || ((place.latitude || 0).toFixed(5) + ', ' + (place.longitude || 0).toFixed(5));
+  }
+
+  function renderResults(items) {
+    results.innerHTML = '';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var li = document.createElement('li');
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label(item);
+      var meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = item.latitude.toFixed(5) + ', ' + item.longitude.toFixed(5);
+      button.appendChild(meta);
+      button.onclick = (function (place) {
+        return function () { select(place); };
+      })(item);
+      li.appendChild(button);
+      results.appendChild(li);
+    }
+  }
+
+  function choose(place) {
+    setStatus('正在设置目的地…');
+    api('/destination', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(place)
+    }).then(function () {
+      setStatus('目的地已设置');
+      loadDestination();
+    }).catch(function (error) { setStatus(error.message); });
+  }
+
+  function loadDestination() {
+    api('/destination').then(function (data) {
+      destinationPlace = data.destination || null;
+      if (destinationPlace) {
+        current.innerHTML = '当前目的地：<b></b><br>';
+        current.querySelector('b').textContent = label(destinationPlace);
+      } else {
+        current.textContent = '当前目的地：未设置';
+      }
+      provider.textContent = data.search_provider ? ('搜索服务：' + data.search_provider) : '';
+      if (destinationPlace) { startMap(); }
+    }).catch(function (error) { setStatus(error.message); });
+  }
+
+  // 类似手机导航：结果点给「目的地」还是「出发地」，由最近一次搜索决定。
+  function select(place) {
+    if (searchTarget === 'origin') {
+      origin = place;
+      originInput.value = label(place);
+      originHint.textContent = '出发地：' + label(place);
+      setStatus('出发地已设置，点「预览路线」查看');
+      return;
+    }
+    choose(place);
+  }
+
+  function loadPosition() {
+    api('/position').then(function (data) {
+      var position = data.position;
+      if (!position) {
+        originHint.textContent = '车辆没有定位，请在上面搜索一个出发地';
+        return;
+      }
+      // 没有手动出发地时，后端直接用当前定位。
+      originHint.textContent = '可用「我的位置」：' + position.latitude.toFixed(5) + ', ' + position.longitude.toFixed(5);
+      originInput.placeholder = '留空 = 我的位置';
+    }).catch(function () {
+      originHint.textContent = '读取定位失败，请搜索出发地';
+    });
+  }
+
+  // 预览由本页面自己的后端算（高德优先），不需要车机 GPS 或 mapsd 渲染。
+  function loadPreview() {
+    if (!destinationPlace) { setStatus('请先搜索并选择一个目的地'); return; }
+    var url = '/route?destination=' + destinationPlace.latitude + ',' + destinationPlace.longitude;
+    if (origin) { url += '&origin=' + origin.latitude + ',' + origin.longitude; }
+    preview.disabled = true;
+    setStatus('正在规划预览路线…');
+    api(url).then(function (data) {
+      route = ((data && data.points) || []).length >= 2 ? data : null;
+      if (!route) { throw new Error('没有拿到路线'); }
+      refreshPreviewStatus();
+      showSketch();
+      loadStaticMap();
+    }).catch(function (error) {
+      route = null;
+      setStatus(error.message);
+      showSketch();
+    }).then(function () { preview.disabled = false; });
+  }
+
+  // 高德静态图：道路底图 + 路线 + 起终点，自动适配整条路线；失败时回退到折线。
+  function loadStaticMap() {
+    var token = ++baseMapToken;
+    if (baseMapUrl) { URL.revokeObjectURL(baseMapUrl); baseMapUrl = null; }
+    if (!route || !useBaseMap.checked) {
+      baseMap.hidden = true;
+      if (route) { showSketch(); }
+      return;
+    }
+    var points = route.points;
+    var step = Math.max(1, Math.floor(points.length / 45));
+    var sampled = [];
+    for (var i = 0; i < points.length; i += step) {
+      sampled.push(points[i][0] + ',' + points[i][1]);
+    }
+    if (points.length > 1) {
+      sampled.push(points[points.length - 1][0] + ',' + points[points.length - 1][1]);
+    }
+    baseMap.onload = function () {
+      if (token !== baseMapToken) { return; }
+      map.hidden = true;
+      sketch.hidden = true;
+      mapStatus.hidden = true;
+      baseMap.hidden = false;
+      renderRouteInfo();
+    };
+    baseMap.onerror = function () {
+      if (token !== baseMapToken) { return; }
+      baseMap.hidden = true;
+      if (route) { showSketch(); }
+    };
+    // 底图来源作为 cache key：同一条路线 + 同一来源可命中浏览器缓存
+    // （后端给了 max-age=86400），离线 OSM 出图较慢，避免每次预览都重算。
+    // 过期请求由 baseMapToken 在 fetch 回调里丢弃，不需要放到 URL 上。
+    var url = '/nav_search/api/basemap?p=' + encodeURIComponent(baseProvider.value)
+              + '&points=' + encodeURIComponent(sampled.join(';'));
+    // 用 fetch 取 blob，才能把后端「归档没有覆盖这条路线」之类的原因显示出来；
+    // 直接给 img.src 的话只会静默回退到折线，用户以为离线底图坏了。
+    fetch(url).then(function (response) {
+      if (!response.ok) {
+        return response.text().then(function (text) {
+          var body = {};
+          try { body = text ? JSON.parse(text) : {}; } catch (e) { body = {}; }
+          throw new Error(body.error || ('底图请求失败 HTTP ' + response.status));
+        });
+      }
+      return response.blob();
+    }).then(function (blob) {
+      if (token !== baseMapToken) { return; }
+      baseMapUrl = URL.createObjectURL(blob);
+      baseMap.src = baseMapUrl;
+    }).catch(function (error) {
+      if (token !== baseMapToken) { return; }
+      baseMap.hidden = true;
+      if (route) { showSketch(); }
+      setStatus('底图：' + error.message);
+    });
+  }
+
+  function renderRouteInfo() {
+    if (!route) { routeInfo.textContent = ''; return; }
+    var parts = [];
+    if (route.provider) { parts.push(route.provider === 'amap' ? '高德' : 'Mapbox'); }
+    parts.push(route.distance >= 1000 ? (route.distance / 1000).toFixed(1) + ' km' : Math.round(route.distance) + ' m');
+    parts.push(Math.round(route.duration / 60) + ' 分钟');
+    parts.push(route.steps + ' 段');
+    var baseName = BASE_NAMES[baseProvider.value] || '底图';
+    var mode = baseMap.hidden ? (sketch.hidden ? '' : ' · 折线预览') : ' · ' + baseName;
+    routeInfo.textContent = '路线 · ' + parts.join(' · ') + mode;
+  }
+
+  function drawSketch() {
+    var size = Math.max(160, Math.round(frame.clientWidth || 300));
+    var ratio = window.devicePixelRatio || 1;
+    sketch.width = sketch.height = Math.round(size * ratio);
+    var context = sketch.getContext('2d');
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, size, size);
+
+    var points = route.points;
+    var minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    for (var i = 0; i < points.length; i++) {
+      minLon = Math.min(minLon, points[i][0]);
+      maxLon = Math.max(maxLon, points[i][0]);
+      minLat = Math.min(minLat, points[i][1]);
+      maxLat = Math.max(maxLat, points[i][1]);
+    }
+    var centerLon = (minLon + maxLon) / 2, centerLat = (minLat + maxLat) / 2;
+    var squeeze = Math.cos(centerLat * Math.PI / 180);
+    var spanLon = Math.max((maxLon - minLon) * squeeze, 1e-6);
+    var spanLat = Math.max(maxLat - minLat, 1e-6);
+    var padding = size * 0.1;
+    var scale = Math.min((size - 2 * padding) / spanLon, (size - 2 * padding) / spanLat);
+
+    function project(point) {
+      return [size / 2 + (point[0] - centerLon) * squeeze * scale,
+              size / 2 - (point[1] - centerLat) * scale];
+    }
+
+    context.lineWidth = Math.max(2, size / 90);
+    context.lineJoin = context.lineCap = 'round';
+    context.strokeStyle = '#ff9f43';
+    context.beginPath();
+    for (var j = 0; j < points.length; j++) {
+      var pixel = project(points[j]);
+      if (j) { context.lineTo(pixel[0], pixel[1]); } else { context.moveTo(pixel[0], pixel[1]); }
+    }
+    context.stroke();
+
+    function dot(point, color) {
+      context.beginPath();
+      context.arc(point[0], point[1], Math.max(3, size / 55), 0, 2 * Math.PI);
+      context.fillStyle = color;
+      context.fill();
+    }
+    dot(project(points[0]), '#4caf50');
+    dot(project(points[points.length - 1]), '#ff5c5c');
+  }
+
+  function showSketch() {
+    baseMap.hidden = true;
+    if (!route) {
+      map.hidden = true;
+      sketch.hidden = true;
+      mapStatus.hidden = false;
+      mapStatus.textContent = '还没有路线：选好目的地后点「预览路线」（没有 GPS 也能预览）';
+      renderRouteInfo();
+      return;
+    }
+    drawSketch();
+    map.hidden = true;
+    sketch.hidden = false;
+    mapStatus.hidden = true;
+    renderRouteInfo();
+  }
+
+  function refreshMap() {
+    fetch('/nav_search/map.png', { cache: 'no-store' }).then(function (response) {
+      // 没有实时图时，优先保留已加载的高德底图，不要把它刷回折线。
+      if (response.status === 204) {
+        if (baseMap.hidden) { showSketch(); }
+        return;
+      }
+      if (!response.ok) { throw new Error('地图 HTTP ' + response.status); }
+      return response.blob().then(function (blob) {
+        if (mapUrl) { URL.revokeObjectURL(mapUrl); }
+        mapUrl = URL.createObjectURL(blob);
+        map.src = mapUrl;
+        map.hidden = false;
+        sketch.hidden = true;
+        baseMap.hidden = true;
+        mapStatus.hidden = true;
+        renderRouteInfo();
+      });
+    }).catch(function () {
+      if (!route) {
+        map.hidden = true;
+        sketch.hidden = true;
+        baseMap.hidden = true;
+        mapStatus.hidden = false;
+        mapStatus.textContent = '路线图暂不可用';
+        return;
+      }
+      if (baseMap.hidden) { showSketch(); }
+    });
+  }
+
+  function startMap() {
+    if (mapTimer) { return; }
+    refreshMap();
+    mapTimer = setInterval(refreshMap, 1500);
+    loadPosition();
+  }
+
+  function search(query, target) {
+    searchTarget = target;
+    go.disabled = true;
+    setStatus('搜索中…');
+    results.innerHTML = '';
+    api('/search?q=' + encodeURIComponent(query)).then(function (data) {
+      var items = data.results || [];
+      renderResults(items);
+      provider.textContent = data.provider ? ('搜索服务：' + data.provider) : '';
+      var where = target === 'origin' ? '设为出发地' : '设为目的地的';
+      setStatus(items.length ? ('找到 ' + items.length + ' 个结果，点击即可' + where) : '没有找到结果');
+    }).catch(function (error) {
+      setStatus(error.message);
+    }).then(function () {
+      go.disabled = false;
+    });
+  }
+
+  form.onsubmit = function (event) {
+    event.preventDefault();
+    var query = input.value.trim();
+    if (query.length < 2) { return; }
+    search(query, 'destination');
+  };
+
+  originGo.onclick = function () {
+    var query = originInput.value.trim();
+    if (query.length < 2) {
+      origin = null;
+      originHint.textContent = '留空则用车辆当前定位；也可以在这里搜索出发地';
+      loadPosition();
+      return;
+    }
+    search(query, 'origin');
+  };
+
+  preview.onclick = loadPreview;
+
+  function loadBaseProvider() {
+    fetch('/nav_search/api/offline/status').then(function (r) { return r.json(); }).then(function (d) {
+      baseProvider.value = d.provider || 'amap';
+      refreshPreviewStatus();
+      renderRouteInfo();
+    }).catch(function () {});
+  }
+
+  baseProvider.onchange = function () {
+    fetch('/nav_search/api/offline/provider', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({provider: baseProvider.value})
+    }).then(function () {
+      refreshPreviewStatus();
+      loadStaticMap();
+    }).catch(function () { loadStaticMap(); });
+  };
+
+  useBaseMap.onchange = function () { loadStaticMap(); };
+  grayBaseMap.onchange = function () {
+    baseMap.style.filter = grayBaseMap.checked ? 'grayscale(1) contrast(1.08)' : '';
+  };
+
+  loadBaseProvider();
+
+  clear.onclick = function () {
+    clear.disabled = true;
+    api('/destination', { method: 'DELETE' }).then(function () {
+      setStatus('目的地已清除');
+      current.textContent = '当前目的地：未设置';
+      destinationPlace = null;
+      route = null;
+      renderRouteInfo();
+      showSketch();
+    }).catch(function (error) {
+      setStatus(error.message);
+    }).then(function () {
+      clear.disabled = false;
+    });
+  };
+
+  loadDestination();
+  loadPosition();
+})();
+</script>
+</body></html>

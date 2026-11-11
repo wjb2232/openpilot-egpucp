@@ -26,27 +26,6 @@
             width: 100%;
         }
 
-        .header {
-            text-align: center;
-            margin-bottom: 15px;
-            padding: 12px;
-            background: #2d2d2d;
-            border-radius: 8px;
-            flex-shrink: 0;
-        }
-
-        .header h1 {
-            color: #4CAF50;
-            margin-bottom: 8px;
-            font-size: clamp(1.0rem, 4vw, 1.5rem);
-        }
-
-        .header p {
-            color: #ccc;
-            margin-bottom: 10px;
-            font-size: clamp(0.8rem, 3vw, 1rem);
-        }
-
         .search-container {
             margin-bottom: 15px;
             position: sticky;
@@ -162,6 +141,31 @@
             outline: none;
             border: none;
             box-shadow: none;
+        }
+
+        /* 可编辑文本（高德/百度 key）需要明显可见，否则跟背景一样看不出来 */
+        .param-text {
+            flex: 1;
+            min-width: 160px;
+            padding: 8px 10px;
+            border: none;
+            border-bottom: 2px solid #4CAF50;
+            border-radius: 4px 4px 0 0;
+            background: #262626;
+            color: #fff;
+            font-size: 14px;
+            text-align: left;
+            box-shadow: inset 0 -1px 0 rgba(76, 175, 80, 0.2);
+        }
+
+        .param-text::placeholder {
+            color: #777;
+        }
+
+        .param-text:focus {
+            border-bottom-color: #81C784;
+            background: #2f2f2f;
+            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.28);
         }
 
         /* 数字输入框允许键盘直接输入，聚焦时给出可编辑提示 */
@@ -337,7 +341,10 @@
         }
 
         .expand-all {
-            text-align: right;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            align-items: center;
             margin-bottom: 10px;
             position: sticky;
             top: 45px;
@@ -346,14 +353,21 @@
             padding: 5px 0;
         }
 
+        /* <a> and <button> share this class: fix the box metrics explicitly so all
+           the toolbar entries render at exactly the same height (a button's UA
+           style otherwise uses a different font/line-height than an anchor). */
         .expand-btn {
+            display: inline-block;
             background: transparent;
             color: #4CAF50;
             border: 1px solid #4CAF50;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
             cursor: pointer;
+            font-family: inherit;
             font-size: 12px;
+            line-height: 18px;
+            vertical-align: middle;
             margin-left: 6px;
             /* Applied to <a class="expand-btn"> too: the carrot-web shortcut below
                is an anchor, which would otherwise inherit the default underline. */
@@ -431,19 +445,87 @@
             font-size: clamp(0.7rem, 2.5vw, 0.85rem);
             padding: 0 5px;
         }
+        .osm-panel {
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .osm-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: #00695C;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+        }
+        /* 与上面 .category-title 完全一致：同一个 ▶ 字形 + 旋转，避免大小不一 */
+        .osm-title::before {
+            content: '▶';
+            font-size: 12px;
+            margin-right: 8px;
+            transition: transform 0.3s;
+        }
+        .osm-panel:not(.collapsed) .osm-title::before { transform: rotate(90deg); }
+        /* 折叠时只留标题行；面板内的行/进度/提示都是直接子元素 */
+        .osm-panel.collapsed > *:not(.osm-title) { display: none; }
+        .osm-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            margin: 12px 0;
+        }
+        .osm-row > * { margin-right: 10px; }
+        .osm-label { color: #4CAF50; min-width: 100px; font-weight: bold; }
+        .osm-select {
+            flex: 1;
+            min-width: 160px;
+            padding: 8px;
+            border: 1px solid #555;
+            border-radius: 4px;
+            background: #262626;
+            color: white;
+            font-size: 13px;
+        }
+        .osm-btn {
+            padding: 9px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            cursor: pointer;
+            color: white;
+            background: #00897B;
+        }
+        .osm-btn.danger { background: #c62828; }
+        .osm-btn:disabled { background: #555; cursor: default; }
+        .osm-progress {
+            height: 18px;
+            background: #1a1a1a;
+            border-radius: 9px;
+            overflow: hidden;
+            margin: 8px 0;
+        }
+        .osm-progress > div {
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, #00897B, #4CAF50);
+            transition: width .3s;
+        }
+        .osm-hint { color: #aaa; font-size: 12px; line-height: 1.5; }
+        .osm-tiles { color: #bbb; font-size: 12px; word-break: break-all; margin-top: 6px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>⚙️ AMAPNAVI 参数设置</h1>
-            <p>根据参数下面的说明设置适合的值</p>
-        </div>
-
         <div class="search-container">
             <input type="text" class="search-input" id="search-input" placeholder="搜索参数名称或描述...">
         </div>
         <div class="expand-all">
+            <a class="expand-btn" href="/nav_search">🔍 导航搜索</a>
             <button class="expand-btn" onclick="exportConfig()">备份</button>
             <button class="expand-btn" onclick="pickConfigFile()">恢复</button>
             <input
@@ -454,13 +536,93 @@
                 onchange="onConfigFileSelected(event)"
             >
             <button class="expand-btn" id="expand-all-btn">展开参数</button>
-            <button class="expand-btn" id="collapse-all-btn" style="display:none;">折叠所有参数</button>
+            <button class="expand-btn" id="collapse-all-btn" style="display:none;">折叠参数</button>
             <!-- Carrot web (port 7000) is served on the same device: the href is filled
                  in from location.hostname so it works whatever the device address is. -->
-            <a class="expand-btn" id="navCarrotWeb" href="#" title="打开 carrot 设置页">carrot 设置页</a>
+            <a class="expand-btn" id="navCarrotWeb" href="#" title="打开 Carrot 设置页">Carrot</a>
         </div>
 
         <div class="params-container" id="params-container">
+        </div>
+
+        <div class="osm-panel collapsed" id="osm-panel">
+            <div class="osm-title" onclick="toggleNavPanel('osm-panel')">OSM 离线地图缓存</div>
+            <div class="osm-row">
+                <span class="osm-label">缓存情况</span>
+                <span id="osm-cache-size">读取中…</span>
+                <span id="osm-tile-count" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">选择区域</span>
+                <select class="osm-select" id="osm-region" onchange="onOsmRegionChange()"></select>
+                <span id="osm-region-tiles" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <button class="osm-btn" id="osm-download" onclick="startOsmDownload()">下载地图数据</button>
+                <button class="osm-btn danger" id="osm-delete" onclick="clearOsmCache()">清空缓存</button>
+            </div>
+            <div class="osm-progress"><div id="osm-progress-bar"></div></div>
+            <div class="osm-hint" id="osm-progress-text">空闲</div>
+            <div class="osm-tiles" id="osm-tiles"></div>
+            <div class="osm-hint" style="margin-top:10px;">
+                数据源：sunnypilot mapd 的 OSM 路网分片（2°×2°，单个约 10–60 MB）。这是离线路网/限速数据，
+                <b>不是用于画底图的瓦片</b>，导航渲染图不会用它；已放开全国下载（约 576 个分片、数 GB），
+                空间不足时会自动停止。画底图请用下面的「离线底图瓦片」。
+            </div>
+        </div>
+
+        <div class="osm-panel collapsed" id="offline-panel">
+            <div class="osm-title" onclick="toggleNavPanel('offline-panel')">离线底图瓦片（OSM / Protomaps PMTiles）</div>
+            <div class="osm-row">
+                <span class="osm-label">预览底图</span>
+                <select class="osm-select" id="offline-provider" onchange="setOfflineProvider()">
+                    <option value="amap">高德静态图（在线）</option>
+                    <option value="mapbox">Mapbox 静态图（在线）</option>
+                    <option value="osm">OSM 离线瓦片（本地）</option>
+                </select>
+                <span id="offline-provider-hint" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">缓存情况</span>
+                <span id="offline-cache-size">读取中…</span>
+                <span id="offline-active" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">下载区域</span>
+                <select class="osm-select" id="offline-region" onchange="onOfflineRegionChange()"></select>
+                <span id="offline-region-hint" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">下载精度</span>
+                <select class="osm-select" id="offline-zoom" onchange="onOfflineRegionChange()">
+                    <option value="">自动（城市 / 省份 z15，全国 z12）</option>
+                    <option value="15">z15 最精细（含县乡道、小路）</option>
+                    <option value="14">z14 精细（约省一半空间）</option>
+                    <option value="13">z13 概览</option>
+                    <option value="12">z12 主干道</option>
+                </select>
+                <span id="offline-estimate" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">使用归档</span>
+                <select class="osm-select" id="offline-active-select" onchange="setOfflineActive()"></select>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">裁剪工具</span>
+                <span id="offline-cli" class="osm-hint">检测中…</span>
+                <button class="osm-btn" id="offline-cli-install" onclick="installOfflineCli()">安装裁剪工具</button>
+            </div>
+            <div class="osm-row">
+                <button class="osm-btn" id="offline-download" onclick="startOfflineDownload()">下载离线瓦片</button>
+                <button class="osm-btn danger" id="offline-delete" onclick="deleteOfflineArchive()">删除选中归档</button>
+            </div>
+            <div class="osm-progress"><div id="offline-progress-bar"></div></div>
+            <div class="osm-hint" id="offline-progress-text">空闲</div>
+            <div class="osm-tiles" id="offline-archives"></div>
+            <div class="osm-hint" style="margin-top:10px;">
+                城市按 z15 裁剪（约 8 MB/城），全国按 z12（约 1 GB）。下载完成后 mapsd 直接读本地归档，
+                导航渲染图和预览页选「OSM 离线瓦片」都不再需要联网。
+            </div>
         </div>
 
         <div class="no-results" id="no-results">
@@ -482,6 +644,47 @@
     <script>
         // 使用ES5兼容的语法
         var paramConfig = {
+            "NavSearchProvider": {
+                chineseName: "目的地搜索服务",
+                defaultValue: "auto",
+                description: "Carrot Web 导航搜索使用的服务。auto：有高德 key 用高德，其次百度，最后 Mapbox",
+                uiType: "select",
+                options: [
+                    { value: "auto", text: "自动（高德 → 百度 → Mapbox）" },
+                    { value: "amap", text: "高德 AMap" },
+                    { value: "baidu", text: "百度 Baidu" },
+                    { value: "mapbox", text: "Mapbox" }
+                ],
+                category: "导航搜索配置"
+            },
+            "NavRouteProvider": {
+                chineseName: "路线规划服务",
+                defaultValue: "auto",
+                description: "navd 使用的路线规划服务。auto：有高德 key 用高德，否则 Mapbox。高德更贴合国内路况，但按调用次数限流（偏航重算最小间隔 10 秒）",
+                uiType: "select",
+                options: [
+                    { value: "auto", text: "自动（高德 → Mapbox）" },
+                    { value: "amap", text: "高德 AMap" },
+                    { value: "mapbox", text: "Mapbox" }
+                ],
+                category: "导航搜索配置"
+            },
+            "AmapWebKey": {
+                chineseName: "高德 Web 服务 Key",
+                defaultValue: "",
+                description: "高德开放平台申请，应用类型选「Web服务」。留空则不使用高德搜索",
+                uiType: "text",
+                placeholder: "在此粘贴高德 Web服务 Key",
+                category: "导航搜索配置"
+            },
+            "BaiduWebAk": {
+                chineseName: "百度地图 AK",
+                defaultValue: "",
+                description: "百度地图开放平台申请的服务端 AK。留空则不使用百度搜索",
+                uiType: "text",
+                placeholder: "在此粘贴百度服务端 AK",
+                category: "导航搜索配置"
+            },
             "EnableCruiseStateShow": {
                 chineseName: "显示巡航小蓝灯(1)",
                 defaultValue: 0,
@@ -564,8 +767,8 @@
             },
             "LogDebugData": {
                 chineseName: "记录实测数据",
-                defaultValue: 1,
-                description: "把前雷达/激光雷达的原始距离、相对速度和判定结果写进 /data/amapnavi_debug/，用于事后复盘；关掉填 0",
+                defaultValue: 0,
+                description: "把前雷达/激光雷达的原始距离、相对速度和判定结果写进 /data/amapnavi_debug/，用于事后复盘；默认不记录，需要时填 1",
                 inputRange: [0, 1],
                 uiType: "select",
                 options: [
@@ -829,6 +1032,7 @@
         };
 
         var NavParamsData = {};
+        // 默认全部折叠，包括第一组参数
         var expandedCategories = {};
 
         function loadNavParams() {
@@ -986,6 +1190,12 @@
             disableInputFields();
         }
 
+        function escapeAttr(value) {
+            return String(value === undefined || value === null ? '' : value)
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
         function generateInputField(key, config, value) {
             if (config.uiType === 'select') {
                 var options = '';
@@ -1016,6 +1226,10 @@
                         mopt.text + '</label>';
                 }
                 return '<div class="param-multiselect" id="' + key + '">' + boxes + '</div>';
+            } else if (config.uiType === 'text') {
+                return '<input type="text" class="param-input param-text" id="' + key + '" autocomplete="off" spellcheck="false" ' +
+                       'placeholder="' + escapeAttr(config.placeholder || '点击这里输入') + '" ' +
+                       'value="' + escapeAttr(value) + '">';
             } else {
                 return '<input type="text" class="param-input" id="' + key + '" value="' + value + '" readonly>';
             }
@@ -1026,8 +1240,8 @@
             for (var i = 0; i < inputs.length; i++) {
                 var input = inputs[i];
 
-                // 数字输入框允许直接键盘输入（含粘贴/拖入），仅把非 number 的输入框设为只读
-                if (input.type === 'number') {
+                // 数字输入框和可编辑文本（如高德 key）允许直接键盘输入，仅把只读框锁住
+                if (input.type === 'number' || (input.type === 'text' && !input.readOnly)) {
                     continue;
                 }
 
@@ -1234,7 +1448,9 @@
                         var value;
 
                         if (paramConfig[key].uiType === 'select') {
-                            value = parseInt(element.value, 10);
+                            // 选项值可能是字符串（如搜索服务的 auto/amap），只有纯数字才转 int
+                            var rawValue = element.value;
+                            value = /^-?\d+$/.test(rawValue) ? parseInt(rawValue, 10) : rawValue;
                         } else if (paramConfig[key].uiType === 'number') {
                             value = parseFloat(element.value);
                             // 允许直接键盘输入后，用户可能清空字段，避免把 NaN 发给服务端
@@ -1485,6 +1701,392 @@
             xhr.send(JSON.stringify(data));
         }
 
+        // ── OSM 离线地图缓存 ──────────────────────────────────────────
+        var osmRegions = [];
+        var osmMaxTiles = 12;
+        var osmTimer = null;
+
+        function fmtOsmBytes(value) {
+            var n = Number(value) || 0;
+            if (n < 1024) return n + ' B';
+            if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+            if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+            return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+        }
+
+        function osmRequest(path, payload, callback) {
+            var xhr = new XMLHttpRequest();
+            xhr.open(payload ? 'POST' : 'GET', path, true);
+            if (payload) xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) return;
+                var data = {};
+                try { data = JSON.parse(xhr.responseText); } catch (e) {}
+                callback(xhr.status, data);
+            };
+            xhr.send(payload ? JSON.stringify(payload) : null);
+        }
+
+        // 下拉框记住上次选择：区域、下载精度刷新后都不再跳回默认项
+        var SELECT_STATE_KEY = 'nav_params.selects';
+
+        function readSelectState() {
+            try {
+                var raw = localStorage.getItem(SELECT_STATE_KEY);
+                return raw ? (JSON.parse(raw) || {}) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function saveSelectChoice(id, value) {
+            if (value === undefined || value === null) return;
+            var state = readSelectState();
+            state[id] = value;
+            try { localStorage.setItem(SELECT_STATE_KEY, JSON.stringify(state)); } catch (e) {}
+        }
+
+        // 上次选的项可能已经不存在（例如列表调整过），这时保留默认项
+        function restoreSelectChoice(id) {
+            var select = document.getElementById(id);
+            if (!select) return false;
+            var saved = readSelectState()[id];
+            if (saved === undefined || saved === null) return false;
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value === saved) {
+                    select.value = saved;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function loadOsmRegions() {
+            osmRequest('/nav_search/api/osm/regions', null, function (status, data) {
+                var select = document.getElementById('osm-region');
+                if (!select) return;
+                osmRegions = data.regions || [];
+                var html = '';
+                var group = '';
+                for (var i = 0; i < osmRegions.length; i++) {
+                    var r = osmRegions[i];
+                    var label = r.kind === 'city' ? '城市' : '国家 / 地区';
+                    if (label !== group) {
+                        if (group) html += '</optgroup>';
+                        html += '<optgroup label="' + label + '">';
+                        group = label;
+                    }
+                    html += '<option value="' + r.key + '">' + r.name + '（' + r.tiles + ' 个分片）</option>';
+                }
+                if (group) html += '</optgroup>';
+                select.innerHTML = html;
+                restoreSelectChoice('osm-region');
+                onOsmRegionChange();
+            });
+        }
+
+        function onOsmRegionChange() {
+            var select = document.getElementById('osm-region');
+            var hint = document.getElementById('osm-region-tiles');
+            if (select) saveSelectChoice('osm-region', select.value);
+            var found = null;
+            for (var i = 0; i < osmRegions.length; i++) {
+                if (osmRegions[i].key === select.value) { found = osmRegions[i]; break; }
+            }
+            if (!found) { hint.textContent = ''; return; }
+            hint.textContent = found.tiles > osmMaxTiles
+                ? '这个区域需要 ' + found.tiles + ' 个分片，超出单次上限'
+                : (found.tiles > 20
+                    ? '全国/大区约 ' + found.tiles + ' 个分片、数 GB，下载时间较长'
+                    : '将下载 ' + found.tiles + ' 个分片');
+        }
+
+        function refreshOsmStatus() {
+            osmRequest('/nav_search/api/osm/status', null, function (status, data) {
+                var p = data.progress || {};
+                if (data.max_tiles) osmMaxTiles = data.max_tiles;
+                document.getElementById('osm-cache-size').textContent = fmtOsmBytes(data.cache_bytes);
+                document.getElementById('osm-tile-count').textContent = (data.tiles || []).length + ' 个分片';
+                var total = Number(p.total_files) || 0;
+                var done = Number(p.downloaded_files) || 0;
+                var pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+                if (p.state === 'done') pct = 100;
+                document.getElementById('osm-progress-bar').style.width = pct + '%';
+                document.getElementById('osm-progress-text').textContent = p.state === 'running'
+                    ? '下载中 ' + pct + '%（' + done + '/' + total + '）· ' + (p.current || '') + ' · ' + fmtOsmBytes(p.bytes)
+                    : (p.message || (total ? '上次下载 ' + done + '/' + total : '空闲'));
+                var cached = [];
+                for (var i = 0; i < (data.tiles || []).length; i++) {
+                    var t = data.tiles[i];
+                    cached.push(t.key + ' (' + fmtOsmBytes(t.bytes) +
+                        (t.regions && t.regions.length ? ' · ' + t.regions.join('/') : '') + ')');
+                }
+                document.getElementById('osm-tiles').textContent = cached.length ? '已缓存：' + cached.join('，') : '';
+                var running = p.state === 'running';
+                document.getElementById('osm-download').disabled = running;
+                document.getElementById('osm-delete').disabled = running;
+                if (osmTimer) clearTimeout(osmTimer);
+                osmTimer = setTimeout(refreshOsmStatus, running ? 1500 : 10000);
+            });
+        }
+
+        function startOsmDownload() {
+            var select = document.getElementById('osm-region');
+            if (!select || !select.value) return;
+            document.getElementById('osm-download').disabled = true;
+            osmRequest('/nav_search/api/osm/download', {region: select.value}, function (status, data) {
+                if (status !== 200) {
+                    showStatus('下载启动失败: ' + (data.error || status), 'error');
+                    document.getElementById('osm-download').disabled = false;
+                } else {
+                    showStatus('已开始下载 OSM 地图数据', 'tip');
+                }
+                refreshOsmStatus();
+            });
+        }
+
+        function clearOsmCache() {
+            if (!window.confirm('确定删除设备上全部 OSM 离线地图缓存吗？')) return;
+            osmRequest('/nav_search/api/osm/delete', {}, function (status, data) {
+                if (status !== 200) showStatus('清空失败: ' + (data.error || status), 'error');
+                else showStatus('OSM 缓存已清空', 'success');
+                refreshOsmStatus();
+            });
+        }
+
+        // ── 离线底图瓦片（Protomaps PMTiles） ────────────────────────
+        var offlineRegions = [];
+        var offlineTimer = null;
+        var offlineActiveName = '';
+
+        function loadOfflineRegions() {
+            osmRequest('/nav_search/api/offline/regions', null, function (status, data) {
+                var select = document.getElementById('offline-region');
+                if (!select) return;
+                offlineRegions = data.regions || [];
+                var html = '', group = '';
+                for (var i = 0; i < offlineRegions.length; i++) {
+                    var r = offlineRegions[i];
+                    var label = r.kind === 'city' ? '城市（z15 精细）'
+                              : (r.kind === 'province' ? '省份（z15 精细，整省）'
+                              : (r.kind === 'national' ? '全国' : '国家 / 地区'));
+                    if (label !== group) {
+                        if (group) html += '</optgroup>';
+                        html += '<optgroup label="' + label + '">';
+                        group = label;
+                    }
+                    var note = r.est_bytes ? '约 ' + fmtOsmBytes(r.est_bytes)
+                             : (r.kind === 'national' ? '约 1 GB' : r.tiles + ' 分片');
+                    html += '<option value="' + r.key + '">' + r.name + '（' + note + '）</option>';
+                }
+                if (group) html += '</optgroup>';
+                select.innerHTML = html;
+                restoreSelectChoice('offline-region');
+                onOfflineRegionChange();
+            });
+        }
+
+        function currentOfflineEstimate() {
+            var select = document.getElementById('offline-region');
+            var zoomSel = document.getElementById('offline-zoom');
+            if (!select) return null;
+            var region = null;
+            for (var i = 0; i < offlineRegions.length; i++) {
+                if (offlineRegions[i].key === select.value) { region = offlineRegions[i]; break; }
+            }
+            if (!region) return null;
+            var manual = zoomSel && zoomSel.value && select.value !== 'nationwide';
+            var zoom = manual ? parseInt(zoomSel.value, 10) : region.zoom;
+            // 每升一级瓦片数 ×4，但低层级单片更小，实测总体积约 ×2
+            var bytes = (region.est_bytes || 0) * (manual ? Math.pow(2, zoom - region.zoom) : 1);
+            return {region: region, zoom: zoom, bytes: bytes};
+        }
+
+        function onOfflineRegionChange() {
+            var select = document.getElementById('offline-region');
+            var hint = document.getElementById('offline-region-hint');
+            var est = document.getElementById('offline-estimate');
+            var zoomSel = document.getElementById('offline-zoom');
+            if (select) saveSelectChoice('offline-region', select.value);
+            if (zoomSel) saveSelectChoice('offline-zoom', zoomSel.value);
+            var cur = currentOfflineEstimate();
+            if (!cur) { hint.textContent = ''; if (est) est.textContent = ''; return; }
+            if (select.value === 'nationwide') {
+                hint.textContent = '全国 z12，约 1 GB，需数分钟';
+                if (est) est.textContent = '精度固定 z12';
+                return;
+            }
+            var b = cur.region.bbox;
+            hint.textContent = '覆盖 ' + b[0] + ',' + b[1] + ' ~ ' + b[2] + ',' + b[3];
+            if (est) est.textContent = 'z' + cur.zoom + '，预计约 ' + fmtOsmBytes(cur.bytes);
+        }
+
+        function refreshOfflineStatus() {
+            osmRequest('/nav_search/api/offline/status', null, function (status, data) {
+                var p = data.progress || {};
+                var archives = data.archives || [];
+                offlineActiveName = data.active || '';
+                document.getElementById('offline-provider').value = data.provider || 'amap';
+                document.getElementById('offline-provider-hint').textContent = data.provider === 'osm'
+                    ? (archives.length ? '导航渲染图将使用本地归档' : '尚未下载归档，暂时回退在线')
+                    : (data.provider === 'mapbox' ? 'Mapbox 静态图（需 key）' : '高德静态图（需 key）');
+                document.getElementById('offline-cache-size').textContent = fmtOsmBytes(data.total_bytes);
+                document.getElementById('offline-active').textContent = archives.length + ' 个归档'
+                    + (offlineActiveName ? ' · 当前 ' + offlineActiveName : '');
+                var pct = Number(p.percent) || 0;
+                document.getElementById('offline-progress-bar').style.width = pct + '%';
+                document.getElementById('offline-progress-text').textContent = p.state === 'running'
+                    ? '下载中 ' + pct + '% · ' + fmtOsmBytes(p.bytes)
+                        + (p.total_bytes ? ' / ' + fmtOsmBytes(p.total_bytes) : '') + ' · ' + (p.message || '')
+                    : (p.message || '空闲');
+                var list = [], options = '';
+                for (var i = 0; i < archives.length; i++) {
+                    var a = archives[i];
+                    list.push(a.name + ' (' + fmtOsmBytes(a.bytes) + ')');
+                    options += '<option value="' + a.name + '">' + a.name + ' (' + fmtOsmBytes(a.bytes) + ')</option>';
+                }
+                document.getElementById('offline-active-select').innerHTML = options;
+                if (offlineActiveName) { document.getElementById('offline-active-select').value = offlineActiveName; }
+                document.getElementById('offline-archives').textContent = list.length ? '已下载：' + list.join('，') : '';
+                var running = p.state === 'running';
+                document.getElementById('offline-download').disabled = running || !data.cli_ready;
+                document.getElementById('offline-delete').disabled = running || !archives.length;
+                var cli = data.cli_progress || {};
+                var cliInstalling = cli.state === 'running';
+                var cliPct = Number(cli.percent) || 0;
+                document.getElementById('offline-cli').textContent = data.cli_ready
+                    ? '已就绪（' + (data.cli_arch || '') + '）'
+                    : (cliInstalling
+                        ? '安装中 ' + cliPct + '% · ' + (cli.message || '')
+                        : (!data.cli_supported
+                            ? '当前平台（' + (data.cli_arch || '未知') + '）不支持自动安装'
+                            : (cli.state === 'error' ? '安装失败: ' + (cli.message || '') : '未安装')));
+                document.getElementById('offline-cli-install').disabled =
+                    data.cli_ready || cliInstalling || !data.cli_supported;
+                if (offlineTimer) clearTimeout(offlineTimer);
+                offlineTimer = setTimeout(refreshOfflineStatus,
+                                          (running || cliInstalling) ? 1500 : 10000);
+            });
+        }
+
+        function installOfflineCli() {
+            document.getElementById('offline-cli-install').disabled = true;
+            osmRequest('/nav_search/api/offline/install', {}, function (status, data) {
+                if (status !== 200) {
+                    showStatus('安装失败: ' + (data.error || status), 'error');
+                    document.getElementById('offline-cli-install').disabled = false;
+                } else {
+                    showStatus('已开始安装裁剪工具', 'tip');
+                }
+                refreshOfflineStatus();
+            });
+        }
+
+        function setOfflineProvider() {
+            var select = document.getElementById('offline-provider');
+            osmRequest('/nav_search/api/offline/provider', {provider: select.value}, function (status, data) {
+                if (status !== 200) showStatus('切换底图失败: ' + (data.error || status), 'error');
+                else showStatus('预览底图已切换', 'success');
+                refreshOfflineStatus();
+            });
+        }
+
+        function startOfflineDownload() {
+            var select = document.getElementById('offline-region');
+            if (!select || !select.value) return;
+            var cur = currentOfflineEstimate();
+            if (select.value === 'nationwide'
+                && !window.confirm('全国底图约 1 GB，下载可能需要数分钟，确认开始？')) return;
+            if (cur && select.value !== 'nationwide' && cur.bytes > 500 * 1024 * 1024
+                && !window.confirm('预计需要约 ' + fmtOsmBytes(cur.bytes) + '，确认下载？')) return;
+            var payload = {region: select.value};
+            var zoomSel = document.getElementById('offline-zoom');
+            if (zoomSel && zoomSel.value && select.value !== 'nationwide') {
+                payload.zoom = parseInt(zoomSel.value, 10);
+            }
+            document.getElementById('offline-download').disabled = true;
+            osmRequest('/nav_search/api/offline/download', payload, function (status, data) {
+                if (status !== 200) {
+                    showStatus('下载启动失败: ' + (data.error || status), 'error');
+                    document.getElementById('offline-download').disabled = false;
+                } else {
+                    showStatus('已开始下载离线瓦片', 'tip');
+                }
+                refreshOfflineStatus();
+            });
+        }
+
+        function setOfflineActive() {
+            var select = document.getElementById('offline-active-select');
+            if (!select.value) return;
+            osmRequest('/nav_search/api/offline/active', {name: select.value}, function (status, data) {
+                if (status !== 200) showStatus('切换归档失败: ' + (data.error || status), 'error');
+                else showStatus('已切换离线归档', 'success');
+                refreshOfflineStatus();
+            });
+        }
+
+        function deleteOfflineArchive() {
+            if (!offlineActiveName) return;
+            if (!window.confirm('确定删除归档 ' + offlineActiveName + ' 吗？')) return;
+            osmRequest('/nav_search/api/offline/delete', {name: offlineActiveName}, function (status, data) {
+                if (status !== 200) showStatus('删除失败: ' + (data.error || status), 'error');
+                else showStatus('归档已删除', 'success');
+                refreshOfflineStatus();
+            });
+        }
+
+        function initOfflinePanel() {
+            // 精度是静态选项，先恢复再拉区域，估算提示才会用上记忆值
+            restoreSelectChoice('offline-zoom');
+            loadOfflineRegions();
+            refreshOfflineStatus();
+        }
+
+        // ── 面板折叠：默认收起，用户展开过就记住（localStorage）──────────
+        var NAV_PANEL_KEY = 'nav_params.nav_panels';
+        var NAV_PANELS = ['osm-panel', 'offline-panel'];
+
+        function readNavPanelState() {
+            try {
+                var raw = localStorage.getItem(NAV_PANEL_KEY);
+                return raw ? (JSON.parse(raw) || {}) : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function applyNavPanel(id, expanded) {
+            var panel = document.getElementById(id);
+            if (!panel) return;
+            if (expanded) panel.classList.remove('collapsed');
+            else panel.classList.add('collapsed');
+        }
+
+        function toggleNavPanel(id) {
+            var panel = document.getElementById(id);
+            if (!panel) return;
+            var expanded = panel.classList.contains('collapsed');
+            applyNavPanel(id, expanded);
+            var state = readNavPanelState();
+            state[id] = expanded ? 1 : 0;
+            try { localStorage.setItem(NAV_PANEL_KEY, JSON.stringify(state)); } catch (e) {}
+        }
+
+        function restoreNavPanels() {
+            var state = readNavPanelState();
+            for (var i = 0; i < NAV_PANELS.length; i++) {
+                applyNavPanel(NAV_PANELS[i], !!state[NAV_PANELS[i]]);
+            }
+        }
+
+        function initOsmPanel() {
+            restoreNavPanels();
+            loadOsmRegions();
+            refreshOsmStatus();
+            initOfflinePanel();
+        }
+
         // carrot web (7000) lives on the same device: build the link from the current
         // hostname so it keeps working when the device address changes.
         const navCarrotWeb = document.getElementById('navCarrotWeb');
@@ -1497,6 +2099,7 @@
             loadNavParams();
         }
 		document.getElementById('nav_params-ip').textContent = window.location.hostname;
+        initOsmPanel();
     </script>
 </body>
 </html>
