@@ -445,11 +445,9 @@
             font-size: clamp(0.7rem, 2.5vw, 0.85rem);
             padding: 0 5px;
         }
+        /* 离线地图面板与参数分组共用 params-container 这一个组合框，不再各自套外框 */
         .osm-panel {
-            background: #2d2d2d;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
+            margin-top: 15px;
         }
         .osm-title {
             font-size: 16px;
@@ -463,6 +461,42 @@
             display: flex;
             align-items: center;
         }
+        /* OSM离线街道地图用单独底色，与上面的导航离线底图瓦片区分 */
+        #osm-panel > .osm-title { background: #4527A0; }
+
+        /* 备份弹窗：安卓 WebView 没有 DownloadListener 时，至少能复制 JSON 原文 */
+        .backup-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 200;
+            padding: 15px;
+        }
+        .backup-overlay.show { display: flex; align-items: center; justify-content: center; }
+        .backup-dialog {
+            width: 100%;
+            max-width: 700px;
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .backup-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; }
+        .backup-hint { color: #aaa; font-size: 12px; line-height: 1.5; margin-bottom: 8px; }
+        .backup-text {
+            width: 100%;
+            height: 40vh;
+            box-sizing: border-box;
+            background: #1a1a1a;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .backup-actions { margin-top: 10px; }
+        .backup-actions > * { margin-right: 10px; margin-top: 6px; }
         /* 与上面 .category-title 完全一致：同一个 ▶ 字形 + 旋转，避免大小不一 */
         .osm-title::before {
             content: '▶';
@@ -532,7 +566,7 @@
                 type="file"
                 id="configFileInput"
                 accept=".json,application/json"
-                style="display:none"
+                style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;"
                 onchange="onConfigFileSelected(event)"
             >
             <button class="expand-btn" id="expand-all-btn">展开参数</button>
@@ -543,36 +577,12 @@
         </div>
 
         <div class="params-container" id="params-container">
-        </div>
-
-        <div class="osm-panel collapsed" id="osm-panel">
-            <div class="osm-title" onclick="toggleNavPanel('osm-panel')">OSM 离线地图缓存</div>
-            <div class="osm-row">
-                <span class="osm-label">缓存情况</span>
-                <span id="osm-cache-size">读取中…</span>
-                <span id="osm-tile-count" class="osm-hint"></span>
-            </div>
-            <div class="osm-row">
-                <span class="osm-label">选择区域</span>
-                <select class="osm-select" id="osm-region" onchange="onOsmRegionChange()"></select>
-                <span id="osm-region-tiles" class="osm-hint"></span>
-            </div>
-            <div class="osm-row">
-                <button class="osm-btn" id="osm-download" onclick="startOsmDownload()">下载地图数据</button>
-                <button class="osm-btn danger" id="osm-delete" onclick="clearOsmCache()">清空缓存</button>
-            </div>
-            <div class="osm-progress"><div id="osm-progress-bar"></div></div>
-            <div class="osm-hint" id="osm-progress-text">空闲</div>
-            <div class="osm-tiles" id="osm-tiles"></div>
-            <div class="osm-hint" style="margin-top:10px;">
-                数据源：sunnypilot mapd 的 OSM 路网分片（2°×2°，单个约 10–60 MB）。这是离线路网/限速数据，
-                <b>不是用于画底图的瓦片</b>，导航渲染图不会用它；已放开全国下载（约 576 个分片、数 GB），
-                空间不足时会自动停止。画底图请用下面的「离线底图瓦片」。
-            </div>
-        </div>
+        <!-- 导航搜索设置 / 导航离线底图瓦片 / OSM离线街道地图：3 组统一置顶，
+             排在「公共参数设置」之前，并与后面的参数分组共用同一个组合框 -->
+        <div id="nav-search-mount"></div>
 
         <div class="osm-panel collapsed" id="offline-panel">
-            <div class="osm-title" onclick="toggleNavPanel('offline-panel')">离线底图瓦片（OSM / Protomaps PMTiles）</div>
+            <div class="osm-title" onclick="toggleNavPanel('offline-panel')">导航离线底图瓦片</div>
             <div class="osm-row">
                 <span class="osm-label">预览底图</span>
                 <select class="osm-select" id="offline-provider" onchange="setOfflineProvider()">
@@ -625,6 +635,35 @@
             </div>
         </div>
 
+        <div class="osm-panel collapsed" id="osm-panel">
+            <div class="osm-title" onclick="toggleNavPanel('osm-panel')">OSM离线街道地图</div>
+            <div class="osm-row">
+                <span class="osm-label">缓存情况</span>
+                <span id="osm-cache-size">读取中…</span>
+                <span id="osm-tile-count" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <span class="osm-label">选择区域</span>
+                <select class="osm-select" id="osm-region" onchange="onOsmRegionChange()"></select>
+                <span id="osm-region-tiles" class="osm-hint"></span>
+            </div>
+            <div class="osm-row">
+                <button class="osm-btn" id="osm-download" onclick="startOsmDownload()">下载地图数据</button>
+                <button class="osm-btn danger" id="osm-delete" onclick="clearOsmCache()">清空缓存</button>
+            </div>
+            <div class="osm-progress"><div id="osm-progress-bar"></div></div>
+            <div class="osm-hint" id="osm-progress-text">空闲</div>
+            <div class="osm-tiles" id="osm-tiles"></div>
+            <div class="osm-hint" style="margin-top:10px;">
+                数据源：sunnypilot mapd 的 OSM 路网分片（2°×2°，单个约 10–60 MB）。这是离线路网/限速数据，
+                <b>不是用于画底图的瓦片</b>，导航渲染图不会用它；已放开全国下载（约 576 个分片、数 GB），
+                空间不足时会自动停止。画底图请用上面的「导航离线底图瓦片」。
+            </div>
+        </div>
+
+        <div id="params-list"></div>
+        </div><!-- /params-container -->
+
         <div class="no-results" id="no-results">
             没有找到匹配的参数
         </div>
@@ -638,6 +677,23 @@
 
         <div class="connection-info">
             系统运行中 | 访问地址: <span id="nav_params-ip">-</span>:8088/nav_params
+        </div>
+    </div>
+
+    <!-- 安卓 WebView 里下载可能被吞掉，用弹窗给出可复制的 JSON 原文作为兜底 -->
+    <div class="backup-overlay" id="backup-overlay" onclick="closeBackupDialog(event)">
+        <div class="backup-dialog">
+            <div class="backup-title">备份参数（JSON）</div>
+            <div class="backup-hint">
+                安卓 App 内若下载文件无反应，请点「复制内容」后自行粘贴保存；
+                App 已支持下载时可直接点「下载文件」。
+            </div>
+            <textarea class="backup-text" id="backup-text" readonly></textarea>
+            <div class="backup-actions">
+                <button class="expand-btn" id="backup-copy-btn" onclick="copyBackupText()">复制内容</button>
+                <button class="expand-btn" onclick="downloadBackupFile()">下载文件</button>
+                <button class="expand-btn" onclick="closeBackupDialog()">关闭</button>
+            </div>
         </div>
     </div>
 
@@ -925,7 +981,7 @@
                     { value: 0, text: "不禁用原车盲区" },
                     { value: 1, text: "禁用原车盲区" }
                 ],
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontBlindEnable": {
                 chineseName: "原车前侧盲区检测",
@@ -937,7 +993,7 @@
                     { value: 0, text: "关闭" },
                     { value: 1, text: "启用" }
                 ],
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontDrelMax": {
                 chineseName: "纵向窗口-前方(x0.1m)",
@@ -946,7 +1002,7 @@
                 inputRange: [100, 2000],
                 step: 50,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontTimeHeadway": {
                 chineseName: "安全时距(x0.1s)",
@@ -955,7 +1011,7 @@
                 inputRange: [0, 40],
                 step: 1,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontMinClearance": {
                 chineseName: "绝对最小间距(x0.1m)",
@@ -964,7 +1020,7 @@
                 inputRange: [10, 150],
                 step: 5,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontTtc": {
                 chineseName: "危险TTC(x0.1s)",
@@ -973,7 +1029,7 @@
                 inputRange: [10, 60],
                 step: 1,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontHorizon": {
                 chineseName: "预测窗口(x0.1s)",
@@ -982,7 +1038,7 @@
                 inputRange: [10, 80],
                 step: 1,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontOnTime": {
                 chineseName: "置位延时(x0.1s)",
@@ -991,7 +1047,7 @@
                 inputRange: [0, 20],
                 step: 1,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "StockFrontOffTime": {
                 chineseName: "清除延时(x0.1s)",
@@ -1000,7 +1056,7 @@
                 inputRange: [0, 50],
                 step: 1,
                 uiType: "number",
-                category: "原车前侧盲区"
+                category: "原车雷达前侧盲区"
             },
             "XiaogeBlindSources": {
                 chineseName: "盲区合并来源",
@@ -1027,7 +1083,7 @@
             "普通公路参数": "#9C27B0",
             "ATC参数": "#009688",
             "速度参数": "#FF9800",
-            "原车前侧盲区": "#00BCD4",
+            "原车雷达前侧盲区": "#00BCD4",
             "盲区合并来源": "#795548",
         };
 
@@ -1081,7 +1137,8 @@
         }
 
         function renderParams() {
-            var container = document.getElementById('params-container');
+            // 只渲染参数列表，避免覆盖同一个组合框里的离线地图面板
+            var container = document.getElementById('params-list');
             var html = '';
 
             var categories = {};
@@ -1184,6 +1241,17 @@
             }
 
             container.innerHTML = html;
+
+            // 「导航搜索配置」是动态生成的分组，挂到置顶区域，排在
+            // 导航离线底图瓦片 / OSM离线街道地图之前；清空重挂保证重复渲染不产生副本
+            var mount = document.getElementById('nav-search-mount');
+            mount.innerHTML = '';
+            var navTitle = container.querySelector('[data-category="导航搜索配置"]');
+            if (navTitle) {
+                var navContent = navTitle.nextElementSibling;
+                mount.appendChild(navTitle);
+                mount.appendChild(navContent);
+            }
 
             setupCategoryToggles();
             setupSearch();
@@ -1629,12 +1697,61 @@
 
         // 备份/恢复只针对本页(config.py -> nav_params.json)管理的参数，
         // 不涉及 openpilot 系统参数。备份=下载 JSON 文件，恢复=选择 JSON 文件。
-        // 备份走服务端下载接口（带 Content-Disposition），
-        // iOS Safari 不支持 a[download] + Blob，用这个方式全平台通用。
+        // 备份走服务端下载接口（带 Content-Disposition），普通浏览器 / iOS Safari 通用。
+        // 安卓 App 的 WebView 默认没有 DownloadListener，直接导航到下载链接会没反应，
+        // 甚至把设置页替换成 JSON 文本；在 WebView 里改用弹窗 + 复制兜底。
         function exportConfig() {
+            var ua = navigator.userAgent || '';
+            var inWebView = /Android/i.test(ua) && (/;\s*wv\b/i.test(ua) || /Version\/4\.0/i.test(ua));
+            if (inWebView) {
+                openBackupDialog();
+                return;
+            }
             showStatus("正在备份参数...", "tip");
             window.location.href = "/nav_params_download";
             showStatus("备份文件已开始下载", "success");
+        }
+
+        function openBackupDialog() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/nav_params_data', true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== 4) return;
+                if (xhr.status !== 200 || !xhr.responseText) {
+                    showStatus('读取配置失败(' + xhr.status + ')，请重试', 'error');
+                    return;
+                }
+                var text = xhr.responseText;
+                try { text = JSON.stringify(JSON.parse(text), null, 2); } catch (e) {}
+                var area = document.getElementById('backup-text');
+                area.value = text;
+                document.getElementById('backup-overlay').classList.add('show');
+                area.focus();
+                area.select();
+            };
+            xhr.send();
+        }
+
+        function closeBackupDialog(event) {
+            if (event && event.target && event.target.id !== 'backup-overlay') return;
+            document.getElementById('backup-overlay').classList.remove('show');
+        }
+
+        function copyBackupText() {
+            var area = document.getElementById('backup-text');
+            var btn = document.getElementById('backup-copy-btn');
+            area.focus();
+            area.select();
+            var ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) {}
+            btn.textContent = ok ? '已复制' : '请长按文本框复制';
+            setTimeout(function () { btn.textContent = '复制内容'; }, 2000);
+        }
+
+        function downloadBackupFile() {
+            // App 端加了 DownloadListener 后会真正保存成文件；旧版 APK 仍可能无效，
+            // 此时用「复制内容」兜底。
+            window.location.href = "/nav_params_download";
         }
 
         function pickConfigFile() {
