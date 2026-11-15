@@ -45,7 +45,11 @@ HEADER_HASH="$(sha256sum "$HEADER" | awk '{print $1}')"
 BUILT_HASH="$(cat "$STAMP" 2>/dev/null || true)"
 
 if [ "$HEADER_HASH" = "$BUILT_HASH" ] && [ -f "$MODULE" ]; then
-  exit 0
+  if PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+    'from openpilot.common.params import Params; Params().all_keys()' >/dev/null 2>&1; then
+    exit 0
+  fi
+  echo "Existing params_pyx.so is not loadable by this Python; rebuilding."
 fi
 
 echo "Params registry changed; rebuilding params_pyx.so."

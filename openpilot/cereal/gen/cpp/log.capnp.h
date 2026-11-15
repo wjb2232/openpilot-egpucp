@@ -717,6 +717,10 @@ CAPNP_DECLARE_SCHEMA(ef0efc1e7e7ead89);
 CAPNP_DECLARE_SCHEMA(a4e671db37b8ade5);
 CAPNP_DECLARE_SCHEMA(ed47e3c075be372a);
 CAPNP_DECLARE_SCHEMA(8795cd2944faeab6);
+CAPNP_DECLARE_SCHEMA(ba036c2ac0151811);
+CAPNP_DECLARE_SCHEMA(d7e8250ee4561192);
+CAPNP_DECLARE_SCHEMA(954c12e59abf4c1a);
+CAPNP_DECLARE_SCHEMA(b41bcd4cfbff7e6d);
 CAPNP_DECLARE_SCHEMA(d314cfd957229c11);
 
 }  // namespace schemas
@@ -3135,6 +3139,66 @@ struct Touch {
   };
 };
 
+struct SmallObjectTrack {
+  SmallObjectTrack() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(ba036c2ac0151811, 10, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct AvoidanceTarget {
+  AvoidanceTarget() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(d7e8250ee4561192, 4, 0)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct AvoidanceState {
+  AvoidanceState() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(954c12e59abf4c1a, 1, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct SmallObjectTracks {
+  SmallObjectTracks() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(b41bcd4cfbff7e6d, 2, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
 struct Event {
   Event() = delete;
 
@@ -3295,6 +3359,8 @@ struct Event {
     YOUTUBE_ROAD_ENCODE_DATA,
     YOUTUBE_ROAD_ENCODE_IDX,
     CUSTOM_RESERVED_RAW_DATA1,
+    SMALL_OBJECT_TRACKS,
+    AVOIDANCE_STATE,
   };
 
   struct _capnpPrivate {
@@ -22923,6 +22989,496 @@ private:
 };
 #endif  // !CAPNP_LITE
 
+class SmallObjectTrack::Reader {
+public:
+  typedef SmallObjectTrack Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint64_t getTrackId() const;
+
+  inline  ::uint8_t getCls() const;
+
+  inline float getX() const;
+
+  inline float getY() const;
+
+  inline float getVx() const;
+
+  inline float getVy() const;
+
+  inline float getSigmaX() const;
+
+  inline float getSigmaY() const;
+
+  inline float getScore() const;
+
+  inline float getScoreFused() const;
+
+  inline  ::int32_t getAgeFrames() const;
+
+  inline bool getConfirmed() const;
+
+  inline  ::uint8_t getSource() const;
+
+  inline  ::int64_t getTExposureNs() const;
+
+  inline bool hasBbox() const;
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader getBbox() const;
+
+  inline float getHeadingRad() const;
+
+  inline float getPStep() const;
+
+  inline  ::int64_t getTFirstSeenNs() const;
+
+  inline  ::uint16_t getValidAssocCount() const;
+
+  inline  ::uint32_t getActualPeriodNs() const;
+
+  inline  ::uint16_t getDetPxH() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class SmallObjectTrack::Builder {
+public:
+  typedef SmallObjectTrack Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint64_t getTrackId();
+  inline void setTrackId( ::uint64_t value);
+
+  inline  ::uint8_t getCls();
+  inline void setCls( ::uint8_t value);
+
+  inline float getX();
+  inline void setX(float value);
+
+  inline float getY();
+  inline void setY(float value);
+
+  inline float getVx();
+  inline void setVx(float value);
+
+  inline float getVy();
+  inline void setVy(float value);
+
+  inline float getSigmaX();
+  inline void setSigmaX(float value);
+
+  inline float getSigmaY();
+  inline void setSigmaY(float value);
+
+  inline float getScore();
+  inline void setScore(float value);
+
+  inline float getScoreFused();
+  inline void setScoreFused(float value);
+
+  inline  ::int32_t getAgeFrames();
+  inline void setAgeFrames( ::int32_t value);
+
+  inline bool getConfirmed();
+  inline void setConfirmed(bool value);
+
+  inline  ::uint8_t getSource();
+  inline void setSource( ::uint8_t value);
+
+  inline  ::int64_t getTExposureNs();
+  inline void setTExposureNs( ::int64_t value);
+
+  inline bool hasBbox();
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder getBbox();
+  inline void setBbox( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setBbox(::kj::ArrayPtr<const float> value);
+  inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder initBbox(unsigned int size);
+  inline void adoptBbox(::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> disownBbox();
+
+  inline float getHeadingRad();
+  inline void setHeadingRad(float value);
+
+  inline float getPStep();
+  inline void setPStep(float value);
+
+  inline  ::int64_t getTFirstSeenNs();
+  inline void setTFirstSeenNs( ::int64_t value);
+
+  inline  ::uint16_t getValidAssocCount();
+  inline void setValidAssocCount( ::uint16_t value);
+
+  inline  ::uint32_t getActualPeriodNs();
+  inline void setActualPeriodNs( ::uint32_t value);
+
+  inline  ::uint16_t getDetPxH();
+  inline void setDetPxH( ::uint16_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class SmallObjectTrack::Pipeline {
+public:
+  typedef SmallObjectTrack Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class AvoidanceTarget::Reader {
+public:
+  typedef AvoidanceTarget Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint32_t getTrackId() const;
+
+  inline  ::int8_t getTier() const;
+
+  inline  ::int8_t getCls() const;
+
+  inline  ::int8_t getClsRaw() const;
+
+  inline float getDM() const;
+
+  inline float getTtcS() const;
+
+  inline float getTauPotS() const;
+
+  inline float getVRel() const;
+
+  inline float getHEstM() const;
+
+  inline  ::uint8_t getEnvelopeKmh() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class AvoidanceTarget::Builder {
+public:
+  typedef AvoidanceTarget Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint32_t getTrackId();
+  inline void setTrackId( ::uint32_t value);
+
+  inline  ::int8_t getTier();
+  inline void setTier( ::int8_t value);
+
+  inline  ::int8_t getCls();
+  inline void setCls( ::int8_t value);
+
+  inline  ::int8_t getClsRaw();
+  inline void setClsRaw( ::int8_t value);
+
+  inline float getDM();
+  inline void setDM(float value);
+
+  inline float getTtcS();
+  inline void setTtcS(float value);
+
+  inline float getTauPotS();
+  inline void setTauPotS(float value);
+
+  inline float getVRel();
+  inline void setVRel(float value);
+
+  inline float getHEstM();
+  inline void setHEstM(float value);
+
+  inline  ::uint8_t getEnvelopeKmh();
+  inline void setEnvelopeKmh( ::uint8_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class AvoidanceTarget::Pipeline {
+public:
+  typedef AvoidanceTarget Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class AvoidanceState::Reader {
+public:
+  typedef AvoidanceState Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline bool hasTargets() const;
+  inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Reader getTargets() const;
+
+  inline float getVEgoKmh() const;
+
+  inline  ::int8_t getActiveTier() const;
+
+  inline bool getMonoProfile() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class AvoidanceState::Builder {
+public:
+  typedef AvoidanceState Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline bool hasTargets();
+  inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Builder getTargets();
+  inline void setTargets( ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Builder initTargets(unsigned int size);
+  inline void adoptTargets(::capnp::Orphan< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>> disownTargets();
+
+  inline float getVEgoKmh();
+  inline void setVEgoKmh(float value);
+
+  inline  ::int8_t getActiveTier();
+  inline void setActiveTier( ::int8_t value);
+
+  inline bool getMonoProfile();
+  inline void setMonoProfile(bool value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class AvoidanceState::Pipeline {
+public:
+  typedef AvoidanceState Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class SmallObjectTracks::Reader {
+public:
+  typedef SmallObjectTracks Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline bool hasTracks() const;
+  inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Reader getTracks() const;
+
+  inline  ::uint64_t getFrameId() const;
+
+  inline float getModelLatencyMs() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class SmallObjectTracks::Builder {
+public:
+  typedef SmallObjectTracks Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline bool hasTracks();
+  inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Builder getTracks();
+  inline void setTracks( ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Builder initTracks(unsigned int size);
+  inline void adoptTracks(::capnp::Orphan< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>> disownTracks();
+
+  inline  ::uint64_t getFrameId();
+  inline void setFrameId( ::uint64_t value);
+
+  inline float getModelLatencyMs();
+  inline void setModelLatencyMs(float value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class SmallObjectTracks::Pipeline {
+public:
+  typedef SmallObjectTracks Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
 class Event::Reader {
 public:
   typedef Event Reads;
@@ -23556,6 +24112,14 @@ public:
   inline bool isCustomReservedRawData1() const;
   inline bool hasCustomReservedRawData1() const;
   inline  ::capnp::Data::Reader getCustomReservedRawData1() const;
+
+  inline bool isSmallObjectTracks() const;
+  inline bool hasSmallObjectTracks() const;
+  inline  ::cereal::SmallObjectTracks::Reader getSmallObjectTracks() const;
+
+  inline bool isAvoidanceState() const;
+  inline bool hasAvoidanceState() const;
+  inline  ::cereal::AvoidanceState::Reader getAvoidanceState() const;
 
 private:
   ::capnp::_::StructReader _reader;
@@ -24815,6 +25379,22 @@ public:
   inline  ::capnp::Data::Builder initCustomReservedRawData1(unsigned int size);
   inline void adoptCustomReservedRawData1(::capnp::Orphan< ::capnp::Data>&& value);
   inline ::capnp::Orphan< ::capnp::Data> disownCustomReservedRawData1();
+
+  inline bool isSmallObjectTracks();
+  inline bool hasSmallObjectTracks();
+  inline  ::cereal::SmallObjectTracks::Builder getSmallObjectTracks();
+  inline void setSmallObjectTracks( ::cereal::SmallObjectTracks::Reader value);
+  inline  ::cereal::SmallObjectTracks::Builder initSmallObjectTracks();
+  inline void adoptSmallObjectTracks(::capnp::Orphan< ::cereal::SmallObjectTracks>&& value);
+  inline ::capnp::Orphan< ::cereal::SmallObjectTracks> disownSmallObjectTracks();
+
+  inline bool isAvoidanceState();
+  inline bool hasAvoidanceState();
+  inline  ::cereal::AvoidanceState::Builder getAvoidanceState();
+  inline void setAvoidanceState( ::cereal::AvoidanceState::Reader value);
+  inline  ::cereal::AvoidanceState::Builder initAvoidanceState();
+  inline void adoptAvoidanceState(::capnp::Orphan< ::cereal::AvoidanceState>&& value);
+  inline ::capnp::Orphan< ::cereal::AvoidanceState> disownAvoidanceState();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -53642,6 +54222,602 @@ inline void Touch::Builder::setValue( ::int32_t value) {
       ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
 }
 
+inline  ::uint64_t SmallObjectTrack::Reader::getTrackId() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SmallObjectTrack::Builder::getTrackId() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setTrackId( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint8_t SmallObjectTrack::Reader::getCls() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t SmallObjectTrack::Builder::getCls() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setCls( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getX() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getX() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setX(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getY() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getY() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setY(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getVx() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getVx() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setVx(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getVy() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getVy() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setVy(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getSigmaX() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getSigmaX() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setSigmaX(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getSigmaY() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getSigmaY() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setSigmaY(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getScore() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getScore() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setScore(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getScoreFused() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getScoreFused() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setScoreFused(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int32_t SmallObjectTrack::Reader::getAgeFrames() const {
+  return _reader.getDataField< ::int32_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int32_t SmallObjectTrack::Builder::getAgeFrames() {
+  return _builder.getDataField< ::int32_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setAgeFrames( ::int32_t value) {
+  _builder.setDataField< ::int32_t>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SmallObjectTrack::Reader::getConfirmed() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<72>() * ::capnp::ELEMENTS);
+}
+
+inline bool SmallObjectTrack::Builder::getConfirmed() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<72>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setConfirmed(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<72>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint8_t SmallObjectTrack::Reader::getSource() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t SmallObjectTrack::Builder::getSource() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setSource( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int64_t SmallObjectTrack::Reader::getTExposureNs() const {
+  return _reader.getDataField< ::int64_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int64_t SmallObjectTrack::Builder::getTExposureNs() {
+  return _builder.getDataField< ::int64_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setTExposureNs( ::int64_t value) {
+  _builder.setDataField< ::int64_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SmallObjectTrack::Reader::hasBbox() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool SmallObjectTrack::Builder::hasBbox() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader SmallObjectTrack::Reader::getBbox() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder SmallObjectTrack::Builder::getBbox() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void SmallObjectTrack::Builder::setBbox( ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline void SmallObjectTrack::Builder::setBbox(::kj::ArrayPtr<const float> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>::Builder SmallObjectTrack::Builder::initBbox(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void SmallObjectTrack::Builder::adoptBbox(
+    ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>> SmallObjectTrack::Builder::disownBbox() {
+  return ::capnp::_::PointerHelpers< ::capnp::List<float,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline float SmallObjectTrack::Reader::getHeadingRad() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getHeadingRad() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setHeadingRad(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTrack::Reader::getPStep() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<15>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTrack::Builder::getPStep() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<15>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setPStep(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<15>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int64_t SmallObjectTrack::Reader::getTFirstSeenNs() const {
+  return _reader.getDataField< ::int64_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int64_t SmallObjectTrack::Builder::getTFirstSeenNs() {
+  return _builder.getDataField< ::int64_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setTFirstSeenNs( ::int64_t value) {
+  _builder.setDataField< ::int64_t>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t SmallObjectTrack::Reader::getValidAssocCount() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t SmallObjectTrack::Builder::getValidAssocCount() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setValidAssocCount( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<36>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint32_t SmallObjectTrack::Reader::getActualPeriodNs() const {
+  return _reader.getDataField< ::uint32_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint32_t SmallObjectTrack::Builder::getActualPeriodNs() {
+  return _builder.getDataField< ::uint32_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setActualPeriodNs( ::uint32_t value) {
+  _builder.setDataField< ::uint32_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t SmallObjectTrack::Reader::getDetPxH() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t SmallObjectTrack::Builder::getDetPxH() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTrack::Builder::setDetPxH( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<37>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint32_t AvoidanceTarget::Reader::getTrackId() const {
+  return _reader.getDataField< ::uint32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint32_t AvoidanceTarget::Builder::getTrackId() {
+  return _builder.getDataField< ::uint32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setTrackId( ::uint32_t value) {
+  _builder.setDataField< ::uint32_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int8_t AvoidanceTarget::Reader::getTier() const {
+  return _reader.getDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int8_t AvoidanceTarget::Builder::getTier() {
+  return _builder.getDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setTier( ::int8_t value) {
+  _builder.setDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int8_t AvoidanceTarget::Reader::getCls() const {
+  return _reader.getDataField< ::int8_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int8_t AvoidanceTarget::Builder::getCls() {
+  return _builder.getDataField< ::int8_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setCls( ::int8_t value) {
+  _builder.setDataField< ::int8_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int8_t AvoidanceTarget::Reader::getClsRaw() const {
+  return _reader.getDataField< ::int8_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int8_t AvoidanceTarget::Builder::getClsRaw() {
+  return _builder.getDataField< ::int8_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setClsRaw( ::int8_t value) {
+  _builder.setDataField< ::int8_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline float AvoidanceTarget::Reader::getDM() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceTarget::Builder::getDM() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setDM(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float AvoidanceTarget::Reader::getTtcS() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceTarget::Builder::getTtcS() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setTtcS(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline float AvoidanceTarget::Reader::getTauPotS() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceTarget::Builder::getTauPotS() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setTauPotS(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline float AvoidanceTarget::Reader::getVRel() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceTarget::Builder::getVRel() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setVRel(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
+}
+
+inline float AvoidanceTarget::Reader::getHEstM() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceTarget::Builder::getHEstM() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setHEstM(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint8_t AvoidanceTarget::Reader::getEnvelopeKmh() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t AvoidanceTarget::Builder::getEnvelopeKmh() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceTarget::Builder::setEnvelopeKmh( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool AvoidanceState::Reader::hasTargets() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool AvoidanceState::Builder::hasTargets() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Reader AvoidanceState::Reader::getTargets() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Builder AvoidanceState::Builder::getTargets() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void AvoidanceState::Builder::setTargets( ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>::Builder AvoidanceState::Builder::initTargets(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void AvoidanceState::Builder::adoptTargets(
+    ::capnp::Orphan< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>> AvoidanceState::Builder::disownTargets() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::AvoidanceTarget,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline float AvoidanceState::Reader::getVEgoKmh() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline float AvoidanceState::Builder::getVEgoKmh() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceState::Builder::setVEgoKmh(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::int8_t AvoidanceState::Reader::getActiveTier() const {
+  return _reader.getDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::int8_t AvoidanceState::Builder::getActiveTier() {
+  return _builder.getDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceState::Builder::setActiveTier( ::int8_t value) {
+  _builder.setDataField< ::int8_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool AvoidanceState::Reader::getMonoProfile() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS);
+}
+
+inline bool AvoidanceState::Builder::getMonoProfile() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS);
+}
+inline void AvoidanceState::Builder::setMonoProfile(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool SmallObjectTracks::Reader::hasTracks() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool SmallObjectTracks::Builder::hasTracks() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Reader SmallObjectTracks::Reader::getTracks() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Builder SmallObjectTracks::Builder::getTracks() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void SmallObjectTracks::Builder::setTracks( ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>::Builder SmallObjectTracks::Builder::initTracks(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void SmallObjectTracks::Builder::adoptTracks(
+    ::capnp::Orphan< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>> SmallObjectTracks::Builder::disownTracks() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::SmallObjectTrack,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t SmallObjectTracks::Reader::getFrameId() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SmallObjectTracks::Builder::getFrameId() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTracks::Builder::setFrameId( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SmallObjectTracks::Reader::getModelLatencyMs() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline float SmallObjectTracks::Builder::getModelLatencyMs() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void SmallObjectTracks::Builder::setModelLatencyMs(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
 inline  ::cereal::Event::Which Event::Reader::which() const {
   return _reader.getDataField<Which>(
       ::capnp::bounded<4>() * ::capnp::ELEMENTS);
@@ -61938,6 +63114,114 @@ inline ::capnp::Orphan< ::capnp::Data> Event::Builder::disownCustomReservedRawDa
   KJ_IREQUIRE((which() == Event::CUSTOM_RESERVED_RAW_DATA1),
               "Must check which() before get()ing a union member.");
   return ::capnp::_::PointerHelpers< ::capnp::Data>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool Event::Reader::isSmallObjectTracks() const {
+  return which() == Event::SMALL_OBJECT_TRACKS;
+}
+inline bool Event::Builder::isSmallObjectTracks() {
+  return which() == Event::SMALL_OBJECT_TRACKS;
+}
+inline bool Event::Reader::hasSmallObjectTracks() const {
+  if (which() != Event::SMALL_OBJECT_TRACKS) return false;
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool Event::Builder::hasSmallObjectTracks() {
+  if (which() != Event::SMALL_OBJECT_TRACKS) return false;
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::SmallObjectTracks::Reader Event::Reader::getSmallObjectTracks() const {
+  KJ_IREQUIRE((which() == Event::SMALL_OBJECT_TRACKS),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::cereal::SmallObjectTracks::Builder Event::Builder::getSmallObjectTracks() {
+  KJ_IREQUIRE((which() == Event::SMALL_OBJECT_TRACKS),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::setSmallObjectTracks( ::cereal::SmallObjectTracks::Reader value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::SMALL_OBJECT_TRACKS);
+  ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::SmallObjectTracks::Builder Event::Builder::initSmallObjectTracks() {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::SMALL_OBJECT_TRACKS);
+  return ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::adoptSmallObjectTracks(
+    ::capnp::Orphan< ::cereal::SmallObjectTracks>&& value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::SMALL_OBJECT_TRACKS);
+  ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::SmallObjectTracks> Event::Builder::disownSmallObjectTracks() {
+  KJ_IREQUIRE((which() == Event::SMALL_OBJECT_TRACKS),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::SmallObjectTracks>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool Event::Reader::isAvoidanceState() const {
+  return which() == Event::AVOIDANCE_STATE;
+}
+inline bool Event::Builder::isAvoidanceState() {
+  return which() == Event::AVOIDANCE_STATE;
+}
+inline bool Event::Reader::hasAvoidanceState() const {
+  if (which() != Event::AVOIDANCE_STATE) return false;
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool Event::Builder::hasAvoidanceState() {
+  if (which() != Event::AVOIDANCE_STATE) return false;
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::AvoidanceState::Reader Event::Reader::getAvoidanceState() const {
+  KJ_IREQUIRE((which() == Event::AVOIDANCE_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::cereal::AvoidanceState::Builder Event::Builder::getAvoidanceState() {
+  KJ_IREQUIRE((which() == Event::AVOIDANCE_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::setAvoidanceState( ::cereal::AvoidanceState::Reader value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::AVOIDANCE_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::AvoidanceState::Builder Event::Builder::initAvoidanceState() {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::AVOIDANCE_STATE);
+  return ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::adoptAvoidanceState(
+    ::capnp::Orphan< ::cereal::AvoidanceState>&& value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::AVOIDANCE_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::AvoidanceState> Event::Builder::disownAvoidanceState() {
+  KJ_IREQUIRE((which() == Event::AVOIDANCE_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::AvoidanceState>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 
