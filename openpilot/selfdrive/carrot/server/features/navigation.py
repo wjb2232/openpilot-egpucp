@@ -1,4 +1,12 @@
-"""Mapbox search/destination UI and the shared nav-model preview."""
+"""Destination search/destination UI and the shared nav-model preview.
+
+Search is delegated to ``nav_search`` so the backend can be Mapbox, AMap or
+Baidu; every result is WGS84 regardless of the provider's native datum.
+
+The provider and the AMap/Baidu keys live in UnifiedParams
+(amapnavi/nav_params.json) so they are edited on the existing
+``http://<device>:8088/nav_params`` page. Mapbox keeps using MapboxPublicKey.
+"""
 import asyncio
 import json
 import math
@@ -6,15 +14,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import time
 
-import aiohttp
 from aiohttp import web
 
 from openpilot.common.params import Params
 from ..config import WEB_DIR
 from ..services.params import get_param_value, set_param_value
 from openpilot.selfdrive.navigation.preview import PREVIEW_PATH, WEB_DEMAND_PATH, preview_fresh, preview_reason
+from . import nav_search
 
-MAX_RESPONSE = 1024 * 1024
+NO_STORE = {'Cache-Control': 'no-store'}
 
 
 @dataclass
@@ -35,6 +43,22 @@ def destination(value):
   return {'latitude': lat, 'longitude': lon, 'place_name': str(value.get('place_name', 'Destination'))[:256]}
 
 
+def _search_settings():
+  """(stored provider, amap key, baidu key, mapbox key) from nav_params.json."""
+  data = nav_search.unified_nav_params()
+  return (
+    str(data.get(nav_search.PROVIDER_FIELD) or 'auto'),
+    str(data.get(nav_search.AMAP_KEY_FIELD) or '').strip(),
+    str(data.get(nav_search.BAIDU_KEY_FIELD) or '').strip(),
+    str(get_param_value(nav_search.MAPBOX_KEY_PARAM, '') or '').strip(),
+  )
+
+
+def _effective_provider():
+  stored, amap_key, baidu_key, mapbox_key = _search_settings()
+  return stored, nav_search.resolve_provider(stored, amap_key, baidu_key, mapbox_key)
+
+
 async def page(request):
   return web.FileResponse(str(Path(WEB_DIR) / 'navigation.html'), headers={'Cache-Control': 'no-cache'})
 
@@ -42,35 +66,24 @@ async def page(request):
 async def search(request):
   query = request.query.get('q', '').strip()
   if not 2 <= len(query) <= 200:
-    return web.json_response({'error': 'Enter 2–200 characters.'}, status=400)
-  token = str(get_param_value('MapboxPublicKey', '') or '').strip()
-  if not token:
-    return web.json_response({'error': 'Set the Mapbox Public key in Settings → Network.'}, status=409)
+    return web.json_response({'error': 'Enter 2–200 characters.'}, status=400, headers=NO_STORE)
+  stored, provider = _effective_provider()
+  if provider is None:
+    return web.json_response({'error': nav_search.missing_key_message(stored)}, status=409, headers=NO_STORE)
   state = request.app[SEARCH_STATE]
   if state.lock.locked() or time.monotonic() < state.next_request:
-    return web.json_response({'error': 'Please wait before searching again.'}, status=429)
+    return web.json_response({'error': 'Please wait before searching again.'}, status=429, headers=NO_STORE)
   async with state.lock:
     state.next_request = time.monotonic() + 1.
+    _, amap_key, baidu_key, mapbox_key = _search_settings()
     try:
-      params = {'q': query, 'access_token': token, 'limit': '5', 'autocomplete': 'false', 'permanent': 'false'}
-      async with request.app['http'].get('https://api.mapbox.com/search/geocode/v6/forward', params=params,
-                                         timeout=aiohttp.ClientTimeout(total=8)) as response:
-        if response.status != 200:
-          return web.json_response({'error': f'Mapbox search failed (HTTP {response.status}).'}, status=502)
-        body = bytearray()
-        async for chunk in response.content.iter_chunked(65536):
-          body.extend(chunk)
-          if len(body) > MAX_RESPONSE:
-            raise ValueError('oversized response')
-        results = []
-        for feature in json.loads(body).get('features', [])[:5]:
-          lon, lat = feature['geometry']['coordinates'][:2]
-          properties = feature.get('properties', {})
-          results.append(destination({'latitude': lat, 'longitude': lon,
-                                      'place_name': properties.get('full_address') or properties.get('name') or query}))
-        return web.json_response({'results': results}, headers={'Cache-Control': 'no-store'})
-    except (aiohttp.ClientError, TimeoutError, ValueError, KeyError, TypeError, IndexError, AttributeError):
-      return web.json_response({'error': 'Mapbox search is unavailable.'}, status=502)
+      results = await nav_search.search(request.app['http'], provider, query,
+                                        amap_key=amap_key, baidu_key=baidu_key, mapbox_key=mapbox_key)
+      return web.json_response({'results': results, 'provider': provider}, headers=NO_STORE)
+    except nav_search.SearchError as exc:
+      return web.json_response({'error': str(exc)}, status=502, headers=NO_STORE)
+    except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+      return web.json_response({'error': 'Search is unavailable.'}, status=502, headers=NO_STORE)
 
 
 async def get_destination(request):
@@ -79,9 +92,10 @@ async def get_destination(request):
     current = destination(json.loads(value)) if value else None
   except (ValueError, KeyError, TypeError):
     current = None
+  _, provider = _effective_provider()
   return web.json_response({'destination': current, 'map_ready': preview_fresh() and preview_reason() == 'ready',
-                            'key_configured': bool(get_param_value('MapboxPublicKey', ''))},
-                           headers={'Cache-Control': 'no-store'})
+                            'key_configured': provider is not None, 'search_provider': provider or ''},
+                           headers=NO_STORE)
 
 
 async def set_destination(request):
@@ -93,7 +107,7 @@ async def set_destination(request):
   set_param_value('NavDestination', '')
   set_param_value('NavDestinationWaypoints', '')
   Params('/dev/shm/params').put('NavDestinationTemporary', json.dumps(value, ensure_ascii=False))
-  return web.json_response({'destination': value}, headers={'Cache-Control': 'no-store'})
+  return web.json_response({'destination': value}, headers=NO_STORE)
 
 
 async def clear_destination(request):

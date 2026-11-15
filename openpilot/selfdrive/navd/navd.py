@@ -19,6 +19,7 @@ from openpilot.selfdrive.navd.helpers import (Coordinate, coordinate_from_param,
                                     parse_banner_instructions)
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.navigation.helpers import ParkedPosition
+from openpilot.selfdrive.navd import carrot_route  # carrot: AMap route provider hook
 
 
 REROUTE_DISTANCE = 25
@@ -432,6 +433,9 @@ class RouteEngine:
       self.reroute_counter = 0
     return self.reroute_counter > REROUTE_COUNTER_MIN
     # TODO: Check for going wrong way in segment
+
+# carrot: 高德 provider 的全部实现都在 carrot_route.py，这里只装一次。
+carrot_route.install(RouteEngine)
 
 def main():
   pm = messaging.PubMaster(['navInstruction', 'navRouteNavd'])

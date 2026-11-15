@@ -8,6 +8,7 @@ import numpy as np
 from openpilot.selfdrive.navigation.helpers import ParkedPosition
 from openpilot.selfdrive.navigation.jetlink_demand import jetlink_map_demand
 from openpilot.selfdrive.navigation.pmtiles import PMTiles
+from openpilot.selfdrive.navigation import carrot_offline_tiles  # carrot: 离线 OSM 底图接入
 from openpilot.selfdrive.navigation.preview import write_preview, preview_fresh, WEB_DEMAND_PATH
 from openpilot.selfdrive.navigation.renderer import SIZE, MapRenderer, Position
 from openpilot.selfdrive.navigation.route import RouteTracker, route_coordinates
@@ -87,7 +88,7 @@ def main():
         try:
           if ready and now >= retry_at:
             if renderer is None:
-              archive = MapboxTiles(mapbox_token) if mapbox_token else PMTiles(RemoteTiles())
+              archive = carrot_offline_tiles.make_archive(mapbox_token, MapboxTiles, PMTiles, RemoteTiles)
               archive_created = now
               renderer = MapRenderer(archive)
             pose = tracker.update_pose(gps.longitude, gps.latitude, gps.speed * (now - gps.time))

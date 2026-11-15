@@ -132,6 +132,7 @@ class AmapNaviServ:
     self.atc_flag = False
     self.dynamicBlindRange = 0
     self.dynamicBlindDistance = 0
+    self.keepStandstillBlind = True
     self.disableBlindSpot = False
     self.frame = 0
 
@@ -186,6 +187,7 @@ class AmapNaviServ:
 
       self.dynamicBlindRange = unified_params.get_int("DynamicBlindRange")
       self.dynamicBlindDistance = unified_params.get_int("DynamicBlindDistance")
+      self.keepStandstillBlind = unified_params.get_bool("LidarKeepStandstillBlind")
       self.disableBlindSpot = unified_params.get_bool("DisableBlindSpot")
       # 实测数据日志开关：关掉时立即关闭文件句柄
       log_on = bool(unified_params.get_int("LogDebugData"))
@@ -259,7 +261,8 @@ class AmapNaviServ:
     shared = self.shared_data
     try:
       lg.heartbeat(shared.v_ego_m, shared.lidar_l, shared.lidar_r,
-                   self.dynamicBlindRange, self.dynamicBlindDistance)
+                   self.dynamicBlindRange, self.dynamicBlindDistance,
+                   radar_alive=self.sm.alive['radarState'])
 
       # 原车前雷达：leadLeft / leadRight 的原始量 + evaluate_side 判定 + 最终标志
       if self.sm.alive['radarState']:
@@ -438,9 +441,13 @@ class AmapNaviServ:
     self.packet_handler.expire_corners()
     self.blind_mask = self._dynamic_blind_mask()
 
+    # 静止屏蔽由 LidarKeepStandstillBlind 控制：默认保留，只有显式关掉才在
+    # 车速为 0 时清盲区（停车/等灯时侧方来车仍要能被看到）。
+    standstill_mask = self.shared_data.standstill and not self.keepStandstillBlind
+
     for corner in CORNERS:
       active = self.packet_handler.object_detected[corner]
-      if self.blind_mask[corner] or self.shared_data.standstill:
+      if self.blind_mask[corner] or standstill_mask:
         active = False
       self.corner_counters[corner].update(active)
 
