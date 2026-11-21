@@ -12,6 +12,18 @@
 exec 9>/tmp/carrot_supervisor.lock   # /run 是 root 目录, 服务以 nvidia 运行写不了
 flock -n 9 || exit 0
 
+# UI 是 Qt/X11, 需要图形环境。systemd/ssh 来源的调用不继承 X 环境,
+# 缺 DISPLAY 时 UI 会在 Qt 平台初始化时段错误并无限重启, 这里探测补齐。
+export DISPLAY="${DISPLAY:-:0}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+AUTH="$(ls /run/user/$(id -u)/gdm/Xauthority 2>/dev/null || true)"
+[ -z "$AUTH" ] && AUTH="$(ls "$HOME/.Xauthority" 2>/dev/null || true)"
+[ -n "$AUTH" ] && export XAUTHORITY="$AUTH"
+
+# T906G 车机: pydeps 内自带的构建工具链 (SCons 4.11/Cython/gcc-arm-none-eabi),
+# launch 内部的 ensure_params_build/build.py 需要它们在 PATH 里
+export PATH="/data/openpilot/pydeps/bin:/data/openpilot/pydeps/gcc_arm_none_eabi/toolchain/bin:$PATH"
+
 while true; do
   cd /data/openpilot || exit 1
   ./launch_chffrplus.sh &

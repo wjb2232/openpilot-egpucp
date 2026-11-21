@@ -38,6 +38,13 @@ printf '%s\n' "$$" > "$PID_FILE"
 trap cleanup EXIT
 trap 'exit 0' INT TERM
 export CARROT_WEB_EXTERNAL=1
+# Params 必须与 manager 栈同源 (/data/params)。缺了它 Params() 会落回
+# $HOME/.comma/params, web 端选车/改参数会"写成功但运行栈读不到"。
+export PARAMS_ROOT=/data/params
+# 自包含 PYTHONPATH: systemd/ssh 等裸环境拉起时也要能 import aiohttp/openpilot。
+# 只给 pydeps + 仓库根两段 —— 不能加 $DIR/openpilot 那段, 它会把根目录 tools
+# 遮蔽成 openpilot/tools (无 jetlink), b1_monitor 的 tools.jetlink 导入会炸。
+export PYTHONPATH="$DIR/pydeps:$DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 while true; do
   # The updater can replace /data/openpilot while this watchdog survives. In
