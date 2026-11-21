@@ -1,6 +1,5 @@
 import asyncio
 import json
-import re as _re
 import re
 import time
 from dataclasses import dataclass, field
@@ -19,6 +18,17 @@ CARROT_STREAM_PRUNE_INTERVAL_SEC = 1.0
 
 def normalize_stream_identifier(value: Any) -> str:
   return _STREAM_IDENTIFIER_PATTERN.sub("-", str(value or "").strip()).strip("-")[:128]
+
+
+def sanitize_remote_sdp(sdp: str) -> str:
+  lines = []
+  for line in sdp.splitlines(keepends=True):
+    if line.startswith("a=candidate:") and re.search(r"\s[^ ]+\.local\s", line):
+      continue
+    if line.startswith("a=end-of-candidates"):
+      continue
+    lines.append(line)
+  return "".join(lines)
 
 
 @dataclass(frozen=True)
@@ -231,14 +241,9 @@ async def get_stream(request: web.Request):
   stream_dict, debug_mode = request.app["streams"], request.app["debug"]
 
   raw_body = await request.json()
-  # aiortc cannot resolve mDNS (.local) ICE candidates (Firefox/Chrome
-  # privacy mode): feeding them to setRemoteDescription kills the local
-  # gatherer and the answer goes out with zero candidates, so the browser
-  # never connects. Strip remote candidate lines instead: the browser
-  # performs the STUN checks against the device candidates in the answer.
-  _sdp = _re.sub(r"^a=candidate:.*\n?", "", raw_body["sdp"], flags=_re.M)
-  _sdp = _re.sub(r"^a=end-of-candidates.*\n?", "", _sdp, flags=_re.M)
-  import re as _re_unused
+  # aiortc cannot resolve mDNS (.local) candidates. Remove only those
+  # candidates while preserving routable IP candidates for ICE checks.
+  _sdp = sanitize_remote_sdp(raw_body["sdp"])
   body = CarrotStreamRequestBody(
     sdp=_sdp,
     cameras=raw_body["cameras"],

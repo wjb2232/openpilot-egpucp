@@ -25,6 +25,21 @@ class TestCarrotStreamSession:
     assert " " not in normalized
     assert len(normalized) == 128
 
+  def test_sanitize_remote_sdp_keeps_ip_candidates_and_removes_mdns(self):
+    sdp = "\n".join([
+      "a=mid:0",
+      "a=candidate:1 1 UDP 1 192.168.7.132 5000 typ host",
+      "a=candidate:2 1 UDP 1 browser.local 5001 typ host",
+      "a=end-of-candidates",
+      "",
+    ])
+
+    sanitized = carrot_session.sanitize_remote_sdp(sdp)
+
+    assert "192.168.7.132 5000" in sanitized
+    assert "browser.local 5001" not in sanitized
+    assert "a=end-of-candidates" not in sanitized
+
   @staticmethod
   def _stream_request(
     mocker,

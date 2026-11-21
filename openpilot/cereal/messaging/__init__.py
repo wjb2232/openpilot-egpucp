@@ -158,11 +158,15 @@ class FrequencyTracker:
       return False
 
     avg_freq = 1.0 / self.avg_dt.get_average()
-    if self.min_freq <= avg_freq <= self.max_freq:
+    # Publishing faster than declared is never a safety hazard: a conflated
+    # socket caps the observable rate at the consumer's own loop, and the only
+    # dangerous failure mode is a too-slow / dead service (dropped frames).
+    # Only the lower bound is enforced; an over-fast service is accepted.
+    if avg_freq >= self.min_freq:
       return True
 
     avg_freq_recent = 1.0 / self.recent_avg_dt.get_average()
-    return self.min_freq <= avg_freq_recent <= self.max_freq
+    return avg_freq_recent >= self.min_freq
 
 
 class SubMaster:

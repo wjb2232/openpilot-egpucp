@@ -61,13 +61,15 @@ void FfmpegEncoder::encoder_open() {
 
   AVDictionary *opts = nullptr;
   if (codec_id == AV_CODEC_ID_H264) {
-    // 实时编码: x264 私有选项 (单位 kbps)。codec_ctx->bit_rate 实测未被 wrapper
-    // 映射到 rc (1080p 噪声内容 ~920KB/帧 = 16 倍超调), 用显式 ABR + VBV 硬上限。
-    int bitrate_kbps = settings.bitrate / 1000;
+    // Real-time streaming: constrain bitrate through the standard AVCodecContext
+    // fields. Custom av_dict keys like "bitrate" are NOT valid libx264 wrapper
+    // options and get silently dropped by avcodec_open2, leaving the encoder at
+    // its default CRF (~50Mbps, hundreds of RTP fragments per frame - far too
+    // much for WebRTC jitter buffers).
+    this->codec_ctx->bit_rate = settings.bitrate;
+    this->codec_ctx->rc_max_rate = settings.bitrate;
+    this->codec_ctx->rc_buffer_size = settings.bitrate / encoder_info.fps * 2;
     av_dict_set(&opts, "preset", "ultrafast", 0);
-    av_dict_set_int(&opts, "bitrate", bitrate_kbps, 0);
-    av_dict_set_int(&opts, "vbv-maxrate", bitrate_kbps, 0);
-    av_dict_set_int(&opts, "vbv-bufsize", bitrate_kbps / encoder_info.fps * 2, 0);
     this->codec_ctx->gop_size = settings.gop_size;
   }
   int err = avcodec_open2(this->codec_ctx, codec, opts ? &opts : NULL);
