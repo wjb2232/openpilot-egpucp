@@ -106,7 +106,11 @@ def uart_imu_loop(port, baud, stop):
                 msg.accelerometer.timestamp = ts
                 msg.accelerometer.source = cereallog.SensorEventData.SensorSource.lsm6ds3
                 a = msg.accelerometer.init("acceleration")
-                a.v = [ay, -ax, az]
+                # JY62 module is mounted with its raw Z axis pointing DOWN
+                # (verified: static az ~= -9.73 m/s^2). Publish [az, ay, -ax] so
+                # locationd's meas=[-v2,-v1,-v0]=[ax,-ay,-az] reads the comma
+                # device frame (x-fwd, z-up: +9.81 at rest on meas[2]).
+                a.v = [az, ay, -ax]
                 pm.send("accelerometer", msg)
             elif typ == JY62_GYRO:
                 wx = int.from_bytes(frame[2:4], "little", signed=True) / 32768.0 * 2000.0 * math.pi / 180.0
@@ -116,7 +120,9 @@ def uart_imu_loop(port, baud, stop):
                 msg.gyroscope.timestamp = ts
                 msg.gyroscope.source = cereallog.SensorEventData.SensorSource.lsm6ds3
                 g = msg.gyroscope.init("gyroUncalibrated")
-                g.v = [wy, -wx, wz]
+                # Same frame as the accelerometer remap above: raw Z points DOWN,
+                # so yaw (CCW-positive) = -wz lands on locationd's meas[2] = -v[0].
+                g.v = [wz, wy, -wx]
                 pm.send("gyroscope", msg)
 
             if frame_count % 500 == 0:

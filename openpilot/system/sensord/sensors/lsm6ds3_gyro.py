@@ -69,7 +69,13 @@ class LSM6DS3_Gyro(Sensor):
     y = self.parse_16bit(b[2], b[3])
     z = self.parse_16bit(b[4], b[5])
     scale = (8.75 / 1000.0) * (math.pi / 180.0)
-    xyz = [y * scale, -x * scale, z * scale]
+    # This board flat-mounts the LSM6DS3 with chip Z pointing DOWN (verified via
+    # accelerometer gravity axis at rest). Publish [z, y, -x] so that locationd's
+    # meas=[-v2,-v1,-v0]=[x,-y,-z] puts yaw on meas[2]=-z_raw (true vertical yaw,
+    # CCW-positive) instead of the comma side-mount convention (-y_raw).
+    # Horizontal orientation assumes chip X = vehicle forward (Q1 candidate);
+    # alternates if calibration converges oddly: Q2=[z,-y,x], Q3=[z,-x,-y], Q4=[z,x,y].
+    xyz = [z * scale, y * scale, -x * scale]
 
     event = log.SensorEventData.new_message()
     event.timestamp = ts

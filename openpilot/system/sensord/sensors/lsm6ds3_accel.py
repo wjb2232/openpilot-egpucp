@@ -79,7 +79,14 @@ class LSM6DS3_Accel(Sensor):
     event.timestamp = ts
     event.source = self.source
     a = event.init('acceleration')
-    a.v = [y, -x, z]
+    # This board flat-mounts the LSM6DS3 with chip Z pointing DOWN (verified:
+    # gravity reads ~-9.81 on raw Z at rest). Publish [z, y, -x] so that
+    # locationd's meas=[-v2,-v1,-v0]=[x,-y,-z] lands in the comma device frame
+    # (x-fwd, y-left, z-up, +9.81 up at rest, yaw on meas[2]=-z_raw).
+    # Horizontal orientation assumes chip X = vehicle forward (Q1 candidate);
+    # if calibration converges oddly, try the other 90-degree candidates:
+    # Q2=[z,-y,x], Q3=[z,-x,-y], Q4=[z,x,y].
+    a.v = [z, y, -x]
     return event
 
   def shutdown(self) -> None:
