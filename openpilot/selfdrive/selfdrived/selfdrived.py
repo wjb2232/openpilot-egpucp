@@ -33,7 +33,7 @@ from openpilot.selfdrive.controls.lib.cutin_alert import (
   promoted_cutin_candidates,
 )
 
-from openpilot.system.hardware import HARDWARE
+from openpilot.system.hardware import HARDWARE, JETSON
 from openpilot.system.version import get_build_metadata
 
 REPLAY = "REPLAY" in os.environ
@@ -447,8 +447,10 @@ class SelfdriveD:
       # The first model output precedes readiness of its downstream services.
       # Keep engagement blocked while they settle, without calling this a radar fault.
       self.events.add(EventName.selfdriveInitializing)
+    # 台架(JETSON 且从未收到 pandaStates): 无 CAN/panda 是常态, 抑制台架固有的 CAN/USB 告警
+    bench_no_panda = JETSON and not self.sm.seen['pandaStates']
     if not self.sm.valid['radarState']:
-      if self.sm['radarState'].radarErrors.canError:
+      if self.sm['radarState'].radarErrors.canError and not bench_no_panda:
         self.events.add(EventName.canError)
       elif self.sm['radarState'].radarErrors.radarUnavailableTemporary:
         self.events.add(EventName.radarTempUnavailable)
@@ -460,11 +462,12 @@ class SelfdriveD:
       else:
         # Aggregate input validity is independent of decoded radar hardware errors.
         self.events.add(EventName.commIssue)
-    if not self.sm.valid['pandaStates']:
+    if not bench_no_panda and not self.sm.valid['pandaStates']:
       self.events.add(EventName.usbError)
     if CS.canTimeout:
-      self.events.add(EventName.canBusMissing)
-    elif not CS.canValid:
+      if not bench_no_panda:
+        self.events.add(EventName.canBusMissing)
+    elif not CS.canValid and not bench_no_panda:
       self.events.add(EventName.canError)
 
     # generic catch-all. ideally, a more specific event should be added above instead
