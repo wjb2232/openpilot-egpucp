@@ -23,13 +23,17 @@ import cv2
 import numpy as np
 
 from openpilot.common.swaglog import cloudlog
-from openpilot.selfdrive.modeld.compile_modeld import nv12_copy_size
 from openpilot.selfdrive.modeld.constants import ModelConstants
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.trt_runner import TrtRunner
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
 MODEL_W, MODEL_H = 512, 256
+
+
+def nv12_copy_size(stride: int, y_height: int, uv_height: int) -> int:
+  """Byte size of an NV12 frame's Y+UV planes (the helper compile_modeld dropped)."""
+  return stride * y_height + stride * uv_height
 
 
 def metadata_path_for(plan_path) -> str:

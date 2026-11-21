@@ -2,6 +2,7 @@
 # manager 按参数键 TlDetEnabled 托管;输 /tmp/tl_detd.json 与 UI 灯牌契约。
 import argparse
 import json
+import sys
 import time
 
 import cv2
