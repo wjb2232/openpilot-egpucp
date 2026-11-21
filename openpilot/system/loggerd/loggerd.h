@@ -54,11 +54,14 @@ struct EncoderSettings {
   }
 
   static EncoderSettings StreamEncoderSettings() {
-    int _stream_bitrate = getenv("STREAM_BITRATE") ? atoi(getenv("STREAM_BITRATE")) : 600'000;
+    // 3 Mbps + GOP 3 aligned with master-c3's stream encoder: dense detail at
+    // LAN bandwidth, and a keyframe every 100 ms so late joiners render
+    // instantly and packet loss recovers without visible smearing.
+    int _stream_bitrate = getenv("STREAM_BITRATE") ? atoi(getenv("STREAM_BITRATE")) : 3'000'000;
     return EncoderSettings{
       .encode_type = cereal::EncodeIndex::Type::QCAMERA_H264,
       .bitrate = _stream_bitrate,
-      .gop_size = 15,
+      .gop_size = 3,
     };
   }
 
