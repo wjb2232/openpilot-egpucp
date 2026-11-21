@@ -384,6 +384,12 @@ function op_stop() {
   fi
 }
 
+function op_trt() {
+  op_before_cmd
+  # T906G 车机 TRT 栈自愈: deb 依赖/plan 引擎/门控参数一键就位 (幂等)
+  op_run_command bash "$OPENPILOT_ROOT/scripts/usbgpu/deploy_stack.sh" "$@"
+}
+
 function op_default() {
   echo "An openpilot helper"
   echo ""
@@ -405,6 +411,7 @@ function op_default() {
   echo -e "  ${BOLD}switch${NC}       Switch to a different git branch with a clean slate (nukes any changes)"
   echo -e "  ${BOLD}start${NC}        Starts (or restarts) openpilot"
   echo -e "  ${BOLD}stop${NC}         Stops openpilot"
+  echo -e "  ${BOLD}trt${NC}          Install/self-heal TRT deps & engines (deploy_stack)"
   echo ""
   echo -e "${BOLD}${UNDERLINE}Commands [Tooling]:${NC}"
   echo -e "  ${BOLD}juggle${NC}       Run PlotJuggler"
@@ -472,6 +479,7 @@ function _op() {
     start )         shift 1; op_start "$@" ;;
     stop )          shift 1; op_stop "$@" ;;
     restart )       shift 1; op_restart "$@" ;;
+    trt )           shift 1; op_trt "$@" ;;
     post-commit )   shift 1; op_install_post_commit "$@" ;;
     adb )           shift 1; op_adb "$@" ;;
     ssh )           shift 1; op_ssh "$@" ;;
