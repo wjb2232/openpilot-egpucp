@@ -18,7 +18,7 @@ from openpilot.common.lateral_geometry_params import migrate_lateral_geometry_pa
 from openpilot.common.stopping_params import get_stopping_speed
 from openpilot.common.repo_update import release_boot_lock
 from openpilot.common.text_window import TextWindow
-from openpilot.system.hardware import HARDWARE
+from openpilot.system.hardware import HARDWARE, JETSON
 from openpilot.system.manager.camera_config import configure_wide_camera
 from openpilot.selfdrive.monitoring.config import configure_monitoring
 from openpilot.system.manager.helpers import unblock_stdout, write_onroad_params, save_bootlog
@@ -30,6 +30,18 @@ from openpilot.system.athena.registration import register, UNREGISTERED_DONGLE_I
 from openpilot.common.swaglog import cloudlog, add_file_handler
 from openpilot.system.version import get_build_metadata
 from openpilot.system.hardware.hw import Paths
+
+if JETSON:
+  # C++ processes (hw.h has no Jetson branch) run as HardwarePC and write video
+  # segments to ~/.comma/media/0/realdata, while hw.py classifies Jetson as
+  # non-PC, leaving deleter to clean the empty /data/media/0/realdata. Both the
+  # C++ and Python log_root helpers honor LOG_ROOT, so pin it to the real path.
+  os.environ.setdefault("LOG_ROOT", os.path.expanduser("~/.comma/media/0/realdata"))
+  # Params must live in /data/params like on TICI: several Carrot modules
+  # (recovery server, dispatcher, cars, reboot) hardcode that path, and both
+  # the C++ and Python Params helpers honor PARAMS_ROOT. Existing params were
+  # migrated once from ~/.comma/params (kept as backup).
+  os.environ.setdefault("PARAMS_ROOT", "/data/params")
 
 def set_default_params():
   params = Params()
