@@ -1,0 +1,19 @@
+# Carrot openpilot 栈守护 systemd unit (Jetson 车机)。
+# 安装: sudo cp scripts/carrot_supervisor.sh /data/ && sudo chmod 755 /data/carrot_supervisor.sh
+#       sudo cp scripts/carrot-supervisor.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now carrot-supervisor
+# 配套脚本: scripts/openpilot_restart.sh (scp 到车机 /home/nvidia/ 使用)。
+# 日志: journalctl -u carrot-supervisor -f
+[Unit]
+Description=Carrot openpilot stack supervisor (auto-restart manager)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=nvidia
+Environment=HOME=/home/nvidia
+ExecStart=/data/carrot_supervisor.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
