@@ -68,7 +68,10 @@ void FfmpegEncoder::encoder_open() {
     // much for WebRTC jitter buffers).
     this->codec_ctx->bit_rate = settings.bitrate;
     this->codec_ctx->rc_max_rate = settings.bitrate;
-    this->codec_ctx->rc_buffer_size = settings.bitrate / encoder_info.fps * 2;
+    // x264 wrapper reads rc_buffer_size in kbit units (/1000). A 0.5 s VBV keeps
+    // IDRs from being crushed at max QP (a tiny VBV reports "VBV underflow" on
+    // the first frame and turns the picture into flat gray mush).
+    this->codec_ctx->rc_buffer_size = settings.bitrate / 2;
     av_dict_set(&opts, "preset", "ultrafast", 0);
     this->codec_ctx->gop_size = settings.gop_size;
   }
@@ -127,7 +130,10 @@ int FfmpegEncoder::encode_frame(VisionBuf* buf, VisionIpcBufExtra *extra) {
     frame->data[1] = cu;
     frame->data[2] = cv;
   }
-  frame->pts = counter*50*1000; // 50ms per frame
+  // time_base is 1/fps, so one pts unit per frame. A larger per-frame step
+  // (e.g. 50 ms at tb 1/30) makes x264 think frames are minutes apart and its
+  // rate control collapses every P frame into skips (frozen flat picture).
+  frame->pts = counter;
 
   int ret = counter;
 

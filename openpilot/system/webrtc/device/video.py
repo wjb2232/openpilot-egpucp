@@ -5,7 +5,6 @@ import av
 from teleoprtc.tracks import TiciVideoStreamTrack
 
 from openpilot.cereal import messaging
-from openpilot.common.realtime import DT_MDL, DT_DMON
 from openpilot.common.swaglog import cloudlog
 
 
@@ -19,7 +18,10 @@ class LiveStreamVideoStreamTrack(TiciVideoStreamTrack):
   }
 
   def __init__(self, camera_type: str, *, use_source_frame_timestamps: bool = False):
-    dt = DT_DMON if camera_type == "driver" else DT_MDL
+    # All Carrot Vision cameras run at the sensor-native 30 fps (MAIN_FPS).
+    # The legacy DT_MDL/DT_DMON pacing is 20 Hz and would cap browser playback
+    # at 20 fps while frames actually arrive at 30 fps.
+    dt = 1.0 / 30
     super().__init__(camera_type, dt)
 
     self._source_name = self.camera_to_sock_mapping[camera_type]

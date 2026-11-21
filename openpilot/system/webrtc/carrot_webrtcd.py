@@ -3,19 +3,6 @@ import asyncio
 import logging
 import os
 import sys
-import time
-
-# BOOT MARKER: prove this exact file is imported, and record the load path,
-# cwd and sys.path so the manager-spawned process can be compared with a
-# manual launch. Written directly (not via logging) to bypass any handler
-# configuration done by import-time side effects.
-try:
-  with open("/data/openpilot/tmp_webrtcd_boot_marker.txt", "a") as _f:
-    _f.write("boot pid=%d time=%s file=%s cwd=%s syspath0=%s\n" % (
-      os.getpid(), time.strftime("%H:%M:%S"), __file__, os.getcwd(),
-      sys.path[0] if sys.path else None))
-except Exception:
-  pass
 
 from aiohttp import web
 
@@ -27,16 +14,6 @@ from openpilot.system.webrtc.carrot_session import get_stream, on_shutdown, stre
 
 def carrot_webrtcd_thread(host: str, port: int, debug: bool) -> None:
   webrtcd._set_carrot_vision_active(False)
-  # TEMP DIAGNOSTICS: mirror INFO logs to a file so session/track behavior is
-  # inspectable (process stdout/stderr is otherwise attached to a dead pts).
-  logging.basicConfig(
-      level=logging.INFO,
-      handlers=[
-          logging.FileHandler("/tmp/webrtcd_debug.log"),
-          logging.StreamHandler(),
-      ],
-      force=True,  # override handlers installed by import-time side effects
-  )
   logging_level = logging.DEBUG if debug else logging.INFO
   logging.getLogger("WebRTCStream").setLevel(logging_level)
   logging.getLogger("webrtcd").setLevel(logging_level)
