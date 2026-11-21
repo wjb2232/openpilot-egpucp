@@ -24,6 +24,12 @@ AUTH="$(ls /run/user/$(id -u)/gdm/Xauthority 2>/dev/null || true)"
 # launch 内部的 ensure_params_build/build.py 需要它们在 PATH 里
 export PATH="/data/openpilot/pydeps/bin:/data/openpilot/pydeps/gcc_arm_none_eabi/toolchain/bin:$PATH"
 
+# 克隆即自愈: 启动前部署 TRT 栈 (deb/plan/门控参数, 幂等秒级; 失败不阻塞栈启动)
+if [ -x /data/openpilot/scripts/usbgpu/deploy_stack.sh ]; then
+  /data/openpilot/scripts/usbgpu/deploy_stack.sh \
+    || echo "[supervisor] deploy_stack 失败, 继续以现有栈启动" >&2
+fi
+
 while true; do
   cd /data/openpilot || exit 1
   ./launch_chffrplus.sh &
