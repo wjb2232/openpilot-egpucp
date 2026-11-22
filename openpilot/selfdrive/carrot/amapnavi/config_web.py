@@ -490,7 +490,11 @@ class ConfigWeb:
                     if len(points) < 2:
                         raise PlanError('缺少路线点')
                     keys = preview_keys(unified_params)
-                    provider = offline_maps.get_provider()
+                    # p 参数（页面三选一：amap/mapbox/osm）优先；缺省才用全局离线配置，
+                    # 否则选「高德」看全路线时会被离线归档覆盖范围卡死（跨省路线必 400）
+                    provider = (fields.get('p') or [''])[0]
+                    if provider not in ('amap', 'mapbox', 'osm'):
+                        provider = offline_maps.get_provider()
                     if provider == 'osm':
                         body = offline_maps.render_preview(points)
                     elif provider == 'mapbox':

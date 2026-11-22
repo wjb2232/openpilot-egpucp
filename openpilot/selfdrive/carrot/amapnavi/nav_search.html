@@ -436,6 +436,9 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       }
       if (!response.ok) { throw new Error('地图 HTTP ' + response.status); }
       return response.blob().then(function (blob) {
+        // 用户正在看预览底图（点过「预览路线」）时，不要用车机实时小图
+        // 覆盖，否则全路线图闪现 1.5 秒就被刷掉；重新预览或清除目的地可恢复。
+        if (!baseMap.hidden) { return; }
         if (mapUrl) { URL.revokeObjectURL(mapUrl); }
         mapUrl = URL.createObjectURL(blob);
         map.src = mapUrl;
