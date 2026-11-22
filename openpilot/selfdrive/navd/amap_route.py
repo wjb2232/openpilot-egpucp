@@ -141,6 +141,15 @@ def _coordinate(pair) -> str:
 ROUTE_STRATEGY = '11'
 ROUTE_LABELS = ('最快', '最短', '躲避拥堵')
 
+# 网页「路线偏好」：偏好名 -> (高德高级策略号, 卡片展示名)。这些策略通常只回
+# 单条路线，候选接口按原样透传 strategy，navd 重规划同参数取同一条路。
+ROUTE_PREFS = {
+    'avoid_highway': ('14', '不走高速'),
+    'less_toll': ('15', '少收费'),
+    'prefer_big_road': ('16', '大路优先'),
+    'prefer_highway': ('18', '高速优先'),
+}
+
 
 def request_params(points: list[tuple[float, float]], key: str, strategy: str = '0') -> dict[str, str]:
   """AMap driving query for WGS84 (longitude, latitude) origin/waypoints/destination."""

@@ -36,6 +36,9 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
 #routeMap .leaflet-container{background:#10151c}
 li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+#prefs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+#prefs button{font-size:13px;padding:7px 10px;border-radius:999px}
+#prefs button.on{background:#ff9f43;color:#12202c;border-color:#ff9f43;font-weight:600}
 #mapStatus{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:18px;text-align:center;color:#8fa0b3;font-size:14px}
 #mapStatus[hidden]{display:none}
 .credit{margin:8px 0 0;font-size:12px;color:#7b899a}
@@ -83,6 +86,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     <p id="provider" class="hint"></p>
     <ul id="results"></ul>
     <div id="current">当前目的地：未设置</div>
+    <div id="prefs"></div>
     <ul id="routes"></ul>
     <div id="originBox">
       <label for="origin">出发地</label>
@@ -136,6 +140,8 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
   var routeLayerGroup = null;
   var pickedLine = null;     // 当前选中的候选路线（再点一次开始导航）
   var ROUTE_COLORS = {0: '#1677ff', 1: '#00b96b', 2: '#faad14'};
+  var currentPref = '';      // 路线偏好（空 = 推荐）
+  var prefsBox = document.getElementById('prefs');
 
   function api(path, options) {
     return fetch('/nav_search/api' + path, options || {}).then(function (response) {
@@ -307,6 +313,35 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     if (bounds) { routeMap.fitBounds(bounds, {padding: [28, 28]}); }
   }
 
+  // ===== 路线偏好（不走高速/少收费/大路优先/高速优先）=====
+  // 点偏好后候选路线按对应高德策略重新规划，选中的卡片仍按原 strategy 下发。
+  var PREFS = [['', '推荐'], ['avoid_highway', '不走高速'], ['less_toll', '少收费'],
+               ['prefer_big_road', '大路优先'], ['prefer_highway', '高速优先']];
+
+  function markChips() {
+    var chips = prefsBox.querySelectorAll('button');
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle('on', chips[i].getAttribute('data-pref') === currentPref);
+    }
+  }
+
+  for (var p = 0; p < PREFS.length; p++) {
+    (function (key, name) {
+      var chip = document.createElement('button');
+      chip.type = 'button';
+      chip.textContent = name;
+      chip.setAttribute('data-pref', key);
+      chip.onclick = function () {
+        if (!destinationPlace) { setStatus('请先搜索并选择一个目的地'); return; }
+        if (currentPref === key) { return; }
+        currentPref = key;
+        markChips();
+        loadCandidates();
+      };
+      prefsBox.appendChild(chip);
+    })(PREFS[p][0], PREFS[p][1]);
+  }
+
   // 高德式候选卡片：选好目的地后先拉三条候选路线（最快/最短/躲避拥堵），
   // 点选一条才下发导航；候选接口失败时回退为直接按默认路线设置目的地。
   function loadCandidates() {
@@ -315,6 +350,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     setStatus('正在查询候选路线…');
     var url = '/candidates?destination=' + destinationPlace.latitude + ',' + destinationPlace.longitude;
     if (origin) { url += '&origin=' + origin.latitude + ',' + origin.longitude; }
+    if (currentPref) { url += '&pref=' + currentPref; }
     api(url).then(function (data) {
       var items = data.candidates || [];
       if (!items.length) { throw new Error('没有候选路线'); }
@@ -668,6 +704,8 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       route = null;
       routes.innerHTML = '';
       hideRouteMap();
+      currentPref = '';
+      markChips();
       renderRouteInfo();
       showSketch();
     }).catch(function (error) {

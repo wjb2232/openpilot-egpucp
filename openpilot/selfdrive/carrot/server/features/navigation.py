@@ -137,10 +137,13 @@ async def candidates(request):
     origin = nav_plan.live_position(Params('/dev/shm/params'))
   if origin is None:
     return web.json_response({'error': '暂时没有定位，稍后再试'}, status=400, headers=NO_STORE)
+  pref = request.query.get('pref') or ''
+  if pref and pref not in amap_route.ROUTE_PREFS:
+    return web.json_response({'error': '未知的路线偏好'}, status=400, headers=NO_STORE)
   _, amap_key, _, _ = _search_settings()
   try:
     result = await asyncio.get_running_loop().run_in_executor(
-      None, lambda: nav_plan.candidates(origin, destination_point, amap_key=amap_key))
+      None, lambda: nav_plan.candidates(origin, destination_point, amap_key=amap_key, pref=pref))
   except nav_plan.PlanError as exc:
     return web.json_response({'error': str(exc)}, status=502, headers=NO_STORE)
   except (ValueError, KeyError, TypeError, IndexError, AttributeError):

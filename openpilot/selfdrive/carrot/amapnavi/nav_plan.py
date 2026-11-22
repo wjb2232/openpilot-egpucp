@@ -203,18 +203,21 @@ def plan(origin, destination, *, amap_key: str = '', mapbox_key: str = '', timeo
   raise PlanError('；'.join(errors))
 
 
-def candidates(origin, destination, *, amap_key: str, timeout: float = 8.) -> list[dict[str, Any]]:
+def candidates(origin, destination, *, amap_key: str, timeout: float = 8., pref: str = '') -> list[dict[str, Any]]:
   """Up to three alternative routes for the selection cards (WGS84 in/out).
 
-  高德 strategy=11 一次请求固定返回多条路径（最快/最短/躲避拥堵，paths 顺序即
-  ROUTE_LABELS），卡片展示 distance/duration/tolls；下导航指令时把
-  strategy + route_index 随目的地下发，navd 用同参数重规划取同一条路径。
+  默认走高德 strategy=11 一次请求返回多条路径（最快/最短/躲避拥堵，paths 顺序
+  即 ROUTE_LABELS）；传入 pref（见 amap_route.ROUTE_PREFS）时按对应偏好策略
+  规划。卡片展示 distance/duration/tolls；下导航指令时把 strategy + route_index
+  随目的地下发，navd 用同参数重规划取同一条路径。
   """
   if origin is None or destination is None:
     raise PlanError('缺少起点或终点')
   if not amap_key:
     raise PlanError('没有可用的高德 Web 服务 Key，请先在参数页填写')
-  query = amap_route.request_params([origin, destination], amap_key, amap_route.ROUTE_STRATEGY)
+  pref_meta = amap_route.ROUTE_PREFS.get(pref or '')
+  strategy = pref_meta[0] if pref_meta else amap_route.ROUTE_STRATEGY
+  query = amap_route.request_params([origin, destination], amap_key, strategy)
   body = _get_json(AMAP_DRIVING_URL + '?' + urllib.parse.urlencode(query), timeout)
   if not isinstance(body, dict) or str(body.get('status', '0')) != '1':
     raise PlanError(str(body.get('info') or '高德没有规划出这条路线'))
@@ -239,10 +242,14 @@ def candidates(origin, destination, *, amap_key: str, timeout: float = 8.) -> li
     seen.add(signature)
     # _polyline 已经把 GCJ-02 换算回 WGS84，这里只做抽稀（与预览同一坐标系）
     points = coordinates[::max(1, -(-len(coordinates) // PREVIEW_POINTS))]
+    if pref_meta:
+      label = pref_meta[1] if index == 0 else f'备选{index}'
+    else:
+      label = amap_route.ROUTE_LABELS[index] if index < len(amap_route.ROUTE_LABELS) else f'备选{index}'
     result.append({
       'route_index': index,
-      'strategy': int(amap_route.ROUTE_STRATEGY),
-      'label': amap_route.ROUTE_LABELS[index] if index < len(amap_route.ROUTE_LABELS) else f'备选{index}',
+      'strategy': int(strategy),
+      'label': label,
       'distance': distance, 'duration': duration, 'tolls': amap_route._number(raw.get('tolls')),
       'points': [[round(lon, 6), round(lat, 6)] for lon, lat in points],
     })

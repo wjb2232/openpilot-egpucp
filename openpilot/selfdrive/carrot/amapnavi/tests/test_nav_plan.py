@@ -175,6 +175,22 @@ def test_candidates_dedupes_and_requires_a_key(monkeypatch):
     nav_plan.candidates(BEIJING, SHENZHEN, amap_key='')
 
 
+def test_candidates_pref_uses_pref_strategy_and_label(monkeypatch):
+  # 偏好策略（如不走高速 strategy=14）通常只回单条路线，卡片直接用偏好名
+  seen = {}
+  bodies = iter([candidates_body([(950, 65)])])
+
+  def fake_json(url, timeout):
+    seen['url'] = url
+    return next(bodies)
+
+  monkeypatch.setattr(nav_plan, '_get_json', fake_json)
+  cards = nav_plan.candidates(BEIJING, SHENZHEN, amap_key='amap.test', pref='avoid_highway')
+  assert 'strategy=14' in seen['url']
+  assert [card['label'] for card in cards] == ['不走高速']
+  assert [card['strategy'] for card in cards] == [14]
+
+
 def test_candidates_rejects_failed_body(monkeypatch):
   monkeypatch.setattr(nav_plan, '_get_json', lambda url, timeout: {'status': '0', 'info': 'INVALID_KEY'})
   with pytest.raises(nav_plan.PlanError) as error:
