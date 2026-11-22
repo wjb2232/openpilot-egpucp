@@ -63,7 +63,7 @@ class TrtRunner:
     dtype_map = {trt.DataType.FLOAT: np.float32, trt.DataType.HALF: np.float16, trt.DataType.UINT8: np.uint8}
     self.io = {}
     self.input_names = []
-    self.output_name = None
+    self.output_names = []
     names = [self.engine.get_tensor_name(i) for i in range(self.engine.num_io_tensors)]
     for n in names:
       shape = self.engine.get_tensor_shape(n)
@@ -75,10 +75,11 @@ class TrtRunner:
       if self.engine.get_tensor_mode(n) == trt.TensorIOMode.INPUT:
         self.input_names.append(n)
       else:
-        self.output_name = n
+        self.output_names.append(n)
     self.bindings = [self.io[n]['dev'] for n in names]
-    self.out_host = np.zeros(int(np.prod(self.io[self.output_name]['shape'])),
-                             dtype=self.io[self.output_name]['npdt'])
+    # stateful 契约(N16 等)是 1 个 outputs + 5 个 next_state_* 输出;全部拷回。
+    self.out_hosts = {n: np.zeros(int(np.prod(self.io[n]['shape'])), dtype=self.io[n]['npdt'])
+                      for n in self.output_names}
 
   def _push(self):
     rc = self.drv.cuCtxPushCurrent_v2(self.cu_ctx)
@@ -112,12 +113,15 @@ class TrtRunner:
           raise RuntimeError(f"cudaMemcpy H2D {n} rc={rc}")
       if not self.ctx.execute_v2(self.bindings):
         raise RuntimeError("TRT execute_v2 returned False")
-      rc = self.cudart.cudaMemcpy(self.out_host.ctypes.data,
-                                  ctypes.c_void_p(self.io[self.output_name]['dev']),
-                                  self.out_host.nbytes, 2)  # D2H
-      if rc != 0:
-        raise RuntimeError(f"cudaMemcpy D2H rc={rc}")
-      return self.out_host.copy()
+      for n in self.output_names:
+        rc = self.cudart.cudaMemcpy(self.out_hosts[n].ctypes.data,
+                                    ctypes.c_void_p(self.io[n]['dev']),
+                                    self.out_hosts[n].nbytes, 2)  # D2H
+        if rc != 0:
+          raise RuntimeError(f"cudaMemcpy D2H {n} rc={rc}")
+      if len(self.output_names) == 1:
+        return self.out_hosts[self.output_names[0]].copy()
+      return {n: self.out_hosts[n].copy() for n in self.output_names}
     finally:
       self._pop()
 

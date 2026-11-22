@@ -61,6 +61,15 @@
       "meta": "/home/nvidia/.comma/media/0/models/big_driving_a086d5249fc308bb_fp16_meta.json",
       "sha256": "8e0f4ba52625c93b4ffd1442a35ebef1a4c89916af10401ab024490924b89f58",
       "size": 771081996
+    },
+    {
+      "id": "n16-trt",
+      "label": "N16Nav (96244b1f) · 导航模型 TRT",
+      "kind": "trt_plan",
+      "file": "/home/nvidia/.comma/media/0/models/big_driving_n16_trt.plan",
+      "meta": "/home/nvidia/.comma/media/0/models/big_driving_n16_trt_meta.json",
+      "sha256": "0c245e21c68729573fd0392a54607b38ed785afc6fd7967535a504ca5f39df3d",
+      "size": 814448084
     }
   ]
 }

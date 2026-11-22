@@ -80,6 +80,12 @@ class TrtModelState:
     self.input_shapes = md['input_shapes']
     self.output_slices = md['output_slices']
     self.vision_input_names = [k for k in self.input_shapes if 'img' in k]
+    # stateful 契约(上游导航模型, 如 N16): new_img/state_*/nav_map/navigation 为显式
+    # 输入, next_state_* 为显式输出, 状态轮转由 graph 内部完成(next_state 等价于
+    # eGPU runtime 的原地别名)。视觉缓冲仍走 img/big_img 两个相机流。
+    self.stateful = 'new_img' in self.input_shapes
+    if self.stateful:
+      self.vision_input_names = ['img', 'big_img']
 
     self.parser = Parser()
     self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
@@ -91,23 +97,35 @@ class TrtModelState:
     self.nv12 = get_nv12_info(cam_w, cam_h)
     self.stride, self.y_h, self.uv_h, self._size = self.nv12
     self.frame_copy_size = nv12_copy_size(self.stride, self.y_h, self.uv_h)
-
-    img_shp = self.input_shapes['img']            # (1, 12, 128, 256) -> 2 frames
-    n_frames = img_shp[1] // 6
-    fb = self.input_shapes['features_buffer']
-    self.feat_dim = int(np.prod(fb[2:]))
-    dp = self.input_shapes['desire_pulse']
-
-    self.img_buf_shape = (self.frame_skip * (n_frames - 1) + 1, 6, img_shp[2], img_shp[3])
-    self.img_q = np.zeros(self.img_buf_shape, dtype=np.uint8)
-    self.big_q = np.zeros(self.img_buf_shape, dtype=np.uint8)
-    self.feat_q = np.zeros((self.frame_skip * fb[1], fb[0], self.feat_dim), dtype=np.float32)
-    self.desire_q = np.zeros((self.frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32)
-    self.prev_feat = np.zeros((1, self.feat_dim), dtype=np.float32)
     self.model_dtypes = {n: self.trt.io[n]['npdt'] for n in self.trt.input_names}
 
-    log = ('big model TRT backend ready: plan=%s skip=%d feat_dim=%d' %
-           (os.path.basename(self.plan_path), self.frame_skip, self.feat_dim))
+    if self.stateful:
+      self.state_names = [k for k in self.input_shapes if k.startswith('state_')]
+      # 状态统一以 float32 缓存: TRT patch 后 next_state_* 输出是 float32, 而
+      # state_img_q 等图输入仍声明 uint8 —— 喂引擎时再按 TRT dtype cast。
+      self.state = {k: np.zeros(self.input_shapes[k], dtype=np.float32)
+                    for k in self.state_names}
+      # MapInput 只在 model.views 里有 nav_map 时才喂导航栅格/指令(modeld L651 注入 inputs)
+      self.views = {k: np.zeros(self.input_shapes[k], dtype=self.model_dtypes[k])
+                    for k in ('nav_map', 'navigation') if k in self.input_shapes}
+    else:
+      img_shp = self.input_shapes['img']            # (1, 12, 128, 256) -> 2 frames
+      n_frames = img_shp[1] // 6
+      fb = self.input_shapes['features_buffer']
+      self.feat_dim = int(np.prod(fb[2:]))
+      dp = self.input_shapes['desire_pulse']
+
+      self.img_buf_shape = (self.frame_skip * (n_frames - 1) + 1, 6, img_shp[2], img_shp[3])
+      self.img_q = np.zeros(self.img_buf_shape, dtype=np.uint8)
+      self.big_q = np.zeros(self.img_buf_shape, dtype=np.uint8)
+      self.feat_q = np.zeros((self.frame_skip * fb[1], fb[0], self.feat_dim), dtype=np.float32)
+      self.desire_q = np.zeros((self.frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32)
+      self.prev_feat = np.zeros((1, self.feat_dim), dtype=np.float32)
+
+    log = ('big model TRT backend ready: plan=%s skip=%d feat_dim=%d%s' %
+           (os.path.basename(self.plan_path), self.frame_skip,
+            self.feat_dim if not self.stateful else int(np.prod(self.input_shapes['state_feat_q'][2:])),
+            ' stateful' if self.stateful else ''))
     try:
       cloudlog.warning(log)
     except Exception:
@@ -152,6 +170,12 @@ class TrtModelState:
   # --------------------------------------------------------------------- API
   def reset(self):
     self.prev_desire[:] = 0
+    if self.stateful:
+      for buf in self.state.values():
+        buf.fill(0)
+      for buf in self.views.values():
+        buf.fill(0)
+      return
     self.img_q[:] = 0
     self.big_q[:] = 0
     self.feat_q[:] = 0
@@ -159,6 +183,8 @@ class TrtModelState:
     self.prev_feat[:] = 0
 
   def run(self, bufs, transforms, inputs, prepare_only=False):
+    if self.stateful:
+      return self._run_stateful(bufs, transforms, inputs, prepare_only)
     _frame_n = len(bufs['img'].data)
     frame_buf = np.frombuffer(bufs['img'].data, dtype=np.uint8, count=_frame_n)
     big_frame_buf = np.frombuffer(bufs['big_img'].data, dtype=np.uint8, count=len(bufs['big_img'].data))
@@ -202,6 +228,56 @@ class TrtModelState:
       raise RuntimeError('TRT model output is not finite')
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
     self.prev_feat[:] = model_output[self.output_slices['hidden_state']]
+    if os.environ.get('SEND_RAW_PRED'):
+      outputs_dict['raw_pred'] = model_output.copy()
+    return outputs_dict
+
+  def _run_stateful(self, bufs, transforms, inputs, prepare_only=False):
+    frame_buf = np.frombuffer(bufs['img'].data, dtype=np.uint8, count=len(bufs['img'].data))
+    big_frame_buf = np.frombuffer(bufs['big_img'].data, dtype=np.uint8, count=len(bufs['big_img'].data))
+
+    if prepare_only:
+      return None
+
+    inputs['desire_pulse'][0] = 0
+    desire = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
+    self.prev_desire[:] = inputs['desire_pulse']
+
+    main = self._warp(frame_buf, transforms['img'],
+                      getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
+    wide = self._warp(big_frame_buf, transforms['big_img'],
+                      getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
+
+    d = self.model_dtypes
+    trt_inputs = {
+      # 与 jetlink warp 同构: 每相机 6 平面 [Y00,Y10,Y01,Y11,U,V], dim0=[主相机, 广角]
+      'new_img': np.stack([main, wide]).astype(d['new_img']),
+      'desire': desire.reshape(-1).astype(d['desire']),
+      'traffic_convention': np.asarray(inputs['traffic_convention'], dtype=d['traffic_convention']).reshape(1, 2),
+      'action_t': np.asarray(inputs['action_t'], dtype=d['action_t']).reshape(1, 2),
+    }
+    trt_inputs.update({k: v.astype(d[k]) for k, v in self.state.items()})
+    # 导航输入由 modeld 主循环注入(MapInput); 无路由/无栅格时保持 0, 与 fill_inputs 一致
+    if self.views:
+      self.views['nav_map'].fill(0)
+      self.views['navigation'].fill(0)
+      nav_map = inputs.get('nav_map')
+      if nav_map is not None:
+        self.views['nav_map'][0, 0] = np.asarray(nav_map).reshape(self.input_shapes['nav_map'][2:])
+      navigation = inputs.get('navigation')
+      if navigation is not None:
+        self.views['navigation'][0, :] = np.asarray(navigation, dtype=d['navigation']).reshape(-1)
+      trt_inputs['nav_map'] = self.views['nav_map']
+      trt_inputs['navigation'] = self.views['navigation']
+
+    result = self.trt.run_np(trt_inputs)
+    model_output = result['outputs']
+    if not np.all(np.isfinite(model_output)):
+      raise RuntimeError('TRT model output is not finite')
+    outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
+    # 循环状态回填: graph 输出的 next_state_* 就是下一步的 state_* 输入
+    for k in self.state_names:
+      np.copyto(self.state[k], result['next_' + k].reshape(self.input_shapes[k]))
     if os.environ.get('SEND_RAW_PRED'):
       outputs_dict['raw_pred'] = model_output.copy()
     return outputs_dict

@@ -29,6 +29,7 @@ import time
 import threading
 import signal
 import subprocess
+import traceback
 import numpy as np
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import car, log
@@ -63,6 +64,12 @@ from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, 
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
+# [DIAG] 启动哨兵: 证明运行中进程加载的源码版本(__file__ 不说谎)
+try:
+  with open('/tmp/modeld_boot_marker.txt', 'a') as _f:
+    _f.write("%s pid=%d file=%s\n" % (time.strftime('%H:%M:%S'), os.getpid(), __file__))
+except Exception:
+  pass
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
 
@@ -76,6 +83,8 @@ USBGPU_INIT_ATTEMPTS = 6
 USBGPU_PRECOMPILED_INIT_ATTEMPTS = 2
 USBGPU_INIT_RETRY_INTERVAL = 2.0
 USBGPU_TMUX_ERROR_REASON = "egpu_error"
+USBGPU_TRANSIENT_RETRY_INTERVAL = 12.0
+USBGPU_ERROR_LOG_PATH = "/tmp/egpu_load_error.log"
 
 
 def queue_usbgpu_error_tmux(params: Params, context: str) -> bool:
@@ -97,6 +106,23 @@ def queue_usbgpu_error_tmux(params: Params, context: str) -> bool:
   except Exception:
     cloudlog.exception(f"failed to queue {USBGPU_TMUX_ERROR_REASON} tmux capture: {context}")
   return False
+
+
+def _is_transient_gpu_error(exc: Exception) -> bool:
+  """OOM 类瞬态错误可重试: eGPU 显存被宿主进程短期占满时 TRT 初始化会失败。"""
+  s = f'{type(exc).__name__}: {exc}'.lower()
+  return any(k in s for k in ('out of memory', 'outofmemory', 'cudamalloc', 'insufficient', 'oom', 'invalid device'))
+
+
+def _dump_egpu_load_error(attempt: int, exc: BaseException) -> None:
+  """loader 异常栈落盘: cloudlog 在此阶段可能未落 swaglog, 现场无法回读。"""
+  try:
+    with open(USBGPU_ERROR_LOG_PATH, 'a', encoding='utf-8') as f:
+      f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} attempt {attempt}: {exc!r}\n")
+      traceback.print_exc(file=f)
+      f.write('\n')
+  except Exception:
+    pass
 
 
 def get_lat_smooth_seconds_dynamic(model_output: dict[str, np.ndarray],
@@ -422,12 +448,16 @@ def main(demo=False):
               pass
           return
         except Exception as exc:
-          if usbgpu_pcie_not_ready(exc) and attempt < init_attempts:
-            cloudlog.warning(f"eGPU PCIe link not ready; retrying ({attempt}/{init_attempts}): {exc!r}")
-            time.sleep(USBGPU_INIT_RETRY_INTERVAL)
+          transient = _is_transient_gpu_error(exc)
+          retryable = usbgpu_pcie_not_ready(exc) or transient
+          if retryable and attempt < init_attempts:
+            interval = USBGPU_TRANSIENT_RETRY_INTERVAL if transient else USBGPU_INIT_RETRY_INTERVAL
+            cloudlog.warning(f"eGPU model load transient failure; retrying ({attempt}/{init_attempts}): {exc!r}")
+            time.sleep(interval)
             refresh_usbgpu_device_cache()
             continue
           cloudlog.exception("eGPU model load failed")
+          _dump_egpu_load_error(attempt, exc)
           queue_usbgpu_error_tmux(params, "model load failed")
           return
 
@@ -436,6 +466,7 @@ def main(demo=False):
     loader.join(USBGPU_MODEL_LOAD_TIMEOUT)
     if loader.is_alive():
       cloudlog.error(f"eGPU model load timed out after {USBGPU_MODEL_LOAD_TIMEOUT}s")
+      _dump_egpu_load_error(0, TimeoutError(f"loader thread still running after {USBGPU_MODEL_LOAD_TIMEOUT}s"))
       queue_usbgpu_error_tmux(params, "model load timed out")
       params.put_bool("UsbGpuStartupFailed", True)
       params.put_bool("UsbGpuLoading", False)
@@ -656,6 +687,7 @@ def main(demo=False):
     try:
       model_output = model.run(bufs, transforms, inputs, prepare_only)
     except Exception as exc:
+      _dump_egpu_load_error('runtime', exc)
       if not params.get_bool("UsbGpuActive") or small_model is None:
         raise
       cloudlog.exception("eGPU model failed, falling back to internal GPU")
