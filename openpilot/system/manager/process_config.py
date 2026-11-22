@@ -55,6 +55,12 @@ def not_long_maneuver(started: bool, params: Params, CP: car.CarParams) -> bool:
 def qcomgps(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started and not ublox_available()
 
+def sim7600_nmea(started: bool, params: Params, CP: car.CarParams) -> bool:
+  # 非 TICI 车机（Jetson 等）qcomgpsd/ubloxd 均关闭，用 SIM7600 4G 模块的
+  # NMEA 串口作为 gpsLocation 来源；有任一 ttyUSB 即尝试，进程内会自动找 NMEA 口。
+  return started and not ublox_available() and \
+    any(os.path.exists(f'/dev/ttyUSB{i}') for i in range(5))
+
 def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
   return True
 
@@ -164,6 +170,8 @@ procs = [
   PythonProcess("dmonitoringd", "openpilot.selfdrive.monitoring.dm2d", enable_dm, enabled=(WEBCAM or not PC)),
   # Restart GPS without forking the running manager's IPC state.
   PythonProcess("qcomgpsd", "openpilot.system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI, spawn=True),
+  PythonProcess("sim7600nmead", "openpilot.selfdrive.carrot.sensing.sim7600_nmead",
+                sim7600_nmea, enabled=not TICI and not PC),
   PythonProcess("navd", "openpilot.selfdrive.navd.navd", only_onroad),
   PythonProcess("mapsd", "openpilot.selfdrive.navigation.mapsd", only_onroad),
   PythonProcess("pandad", "openpilot.selfdrive.pandad.pandad", always_run),

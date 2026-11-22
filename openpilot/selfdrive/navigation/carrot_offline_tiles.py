@@ -41,7 +41,8 @@ STATIC_MAX_BYTES = 2 * 1024 * 1024
 ARCHIVE_DIR = '/data/carrot/state/nav_offline'
 STATE_PATH = '/data/carrot/state/nav_offline.json'
 PMTILES_BIN = '/data/carrot/bin/pmtiles'
-DEFAULT_PLANET = 'https://build.protomaps.com/20261109.pmtiles'
+# protomaps 每日构建只保留最近几天，过期 404；重装底图源时改成当天最近可用日期
+DEFAULT_PLANET = 'https://build.protomaps.com/20261121.pmtiles'
 CITY_ZOOM = 15          # 和 renderer.py 的 ZOOM 一致，导航渲染图的实际精度
 NATIONAL_ZOOM = 12      # 全国 z15 有上千万瓦片，降到 z12 约 1 GB
 PROVIDERS = ('amap', 'mapbox', 'osm')
