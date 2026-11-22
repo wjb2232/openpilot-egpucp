@@ -3,14 +3,15 @@ import time
 
 # SOF timestamps are taken in the kernel IRQ callback. EV9 2cc--10 records
 # 12.6-13.2 ms skew with both camera streams complete; a 10 ms hard limit
-# discarded four usable main frames. Allow bounded IRQ timing jitter while
-# staying below half the nominal 50 ms camera period. Do not accept the
-# 50-150 ms stale pairs observed during Ioniq camera recovery.
+# discarded four usable main frames. Allow bounded IRQ timing jitter.
 # Jetson/IMX390 @30fps: the two GMSL sensors free-run with a per-boot phase
-# offset (measured ~21.5 ms constant), so 20 ms forced a match-one-frame-pair
-# alignment and ~7% frame churn. 30 ms covers the intrinsic offset while
-# still rejecting stale pairs (<< 33.3 ms frame period at 30 fps).
-MAX_CAMERA_SKEW_NS = 30_000_000
+# offset, so the skew between the two NEWEST buffered frames is (phase mod
+# 33.3 ms) and can land anywhere in [0, 33.3). The threshold must exceed one
+# camera frame period or some boots pay a blocking advance-recv on every
+# single pair (measured: 30 ms threshold -> delta=3, 10 Hz loop). One period
+# plus small jitter margin covers steady state; genuinely stale pairs from
+# Ioniq camera recovery (50-150 ms) are still rejected.
+MAX_CAMERA_SKEW_NS = 34_000_000
 
 
 class FrameMeta:

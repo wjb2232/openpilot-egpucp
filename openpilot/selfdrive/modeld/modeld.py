@@ -64,12 +64,6 @@ from openpilot.selfdrive.modeld.helpers import (get_tg_input_devices, load_oob, 
                                                 usbgpu_pcie_not_ready, usbgpu_present, wait_for_usbgpu_present)
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld"
-# [DIAG] 启动哨兵: 证明运行中进程加载的源码版本(__file__ 不说谎)
-try:
-  with open('/tmp/modeld_boot_marker.txt', 'a') as _f:
-    _f.write("%s pid=%d file=%s\n" % (time.strftime('%H:%M:%S'), os.getpid(), __file__))
-except Exception:
-  pass
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 SIMULATION = os.getenv('SIMULATION') == '1'
 
@@ -588,9 +582,11 @@ def main(demo=False):
   lat_smooth_seconds = LAT_SMOOTH_SECONDS
   vEgoStopping = get_stopping_speed(params)
   lat_delay_dynamic = lat_smooth_seconds
+  loop_start = 0.0
+  road_cam_fps = 30.0
   diagnostics = RuntimeDiagnostics('modeld', cloudlog.event)
   while True:
-    loop_start, cpu_start = time.monotonic(), time.thread_time()
+    prev_loop_start, loop_start, cpu_start = loop_start, time.monotonic(), time.thread_time()
     frame += 1
     if frame % 100 == 0:
       custom_lat_delay = params.get_float("SteerActuatorDelay") * 0.01
@@ -649,7 +645,12 @@ def main(demo=False):
       vec_desire[desire] = 1
 
     # tracked dropped frames
-    vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - 1)
+    # 30fps 相机 + 20Hz 固定循环存在结构性拍频: 相邻两圈收到的帧号差在 {1,2}
+    # 间摆动 (期望增量 = 圈耗时/33.3ms, 队列满时 camerad 丢帧使其偏向 2)。
+    # 按旧式 "id差-1" 判定, 一半循环会被当成丢帧走 prepare_only, 有效输出
+    # 掉到 ~10Hz。只有超出期望增量的部分才是真丢帧 (相机卡顿/恢复, id差 5+)。
+    frames_expected = max(1, int(round((loop_start - prev_loop_start) * road_cam_fps)))
+    vipc_dropped_frames = max(0, meta_main.frame_id - last_vipc_frame_id - frames_expected)
     frames_dropped = frame_dropped_filter.update(min(vipc_dropped_frames, 10))
     if run_count < 10: # let frame drops warm up
       frame_dropped_filter.x = 0.
@@ -870,6 +871,11 @@ def main(demo=False):
       loop_ms=(time.monotonic() - loop_start) * 1000, thread_cpu_ms=(time.thread_time() - cpu_start) * 1000,
       dropped_frames=vipc_dropped_frames, published=int(model_output is not None),
     )
+    # N16 按固定 20Hz (50ms/步) 训练; 相机 30fps 且推理变快后, 帧驱动循环会跑到
+    # 25Hz+, 模型状态时间步被拉快, 速度/轨迹预测出现系统性偏差。限回设计频率。
+    loop_dt = time.monotonic() - loop_start
+    if loop_dt < DT_MDL:
+      time.sleep(DT_MDL - loop_dt)
 
 
 if __name__ == "__main__":
