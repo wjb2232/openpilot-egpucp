@@ -530,7 +530,9 @@ def main(demo=False):
     params.put_bool("UsbGpuLoading", False)
   cloudlog.warning(f"models loaded in {time.monotonic() - st:.1f}s, modeld starting")
   try:
-    params.put("LocalModelRunning", _plan_sha if usbgpu_model_loaded else _pkl_sha)
+    # use_trt_big 且加载成功时 loader 线程已写入实际 plan 的 sha, 不能再用默认 tgc sha 覆盖
+    if not (usbgpu_model_loaded and use_trt_big):
+      params.put("LocalModelRunning", _plan_sha if usbgpu_model_loaded else _pkl_sha)
   except Exception:
     cloudlog.exception('could not publish LocalModelRunning')
 
