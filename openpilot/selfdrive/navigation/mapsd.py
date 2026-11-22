@@ -91,7 +91,8 @@ def main():
               archive = carrot_offline_tiles.make_archive(mapbox_token, MapboxTiles, PMTiles, RemoteTiles)
               archive_created = now
               renderer = MapRenderer(archive)
-            pose = tracker.update_pose(gps.longitude, gps.latitude, gps.speed * (now - gps.time))
+            # carrot: 50m 默认门限会把停在院内/大停车场的车挡在黑图（实测起点吸附后离车 74m），放宽到 100m
+            pose = tracker.update_pose(gps.longitude, gps.latitude, gps.speed * (now - gps.time), max_distance=100.)
             # Fetch only the current view; do not prefetch a whole country/route.
             if pose is not None:
               lon, lat, bearing = pose
