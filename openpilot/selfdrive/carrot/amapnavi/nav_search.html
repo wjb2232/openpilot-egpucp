@@ -2,6 +2,7 @@
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Carrot · 导航搜索</title>
+<link rel="stylesheet" href="/nav_search/vendor/leaflet/leaflet.css">
 <style>
 :root{color-scheme:dark;font:16px/1.5 system-ui,"Microsoft YaHei",sans-serif;background:#10151c;color:#ecf0f5}
 *{box-sizing:border-box}
@@ -28,9 +29,13 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
 .current{margin:16px 0 10px;padding:12px;border:1px solid #33404f;border-radius:10px;background:#141c26;font-size:14px;color:#c7d3e0}
 .current b{color:#ecf0f5}
 .frame{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#10151c}
-#map,#sketch,#baseMap{display:block;width:100%;height:100%}
+#map,#sketch,#baseMap,#routeMap{display:block;width:100%;height:100%}
 #baseMap{object-fit:contain;background:#10151c}
-#map[hidden],#sketch[hidden],#baseMap[hidden]{display:none}
+#map[hidden],#sketch[hidden],#baseMap[hidden],#routeMap[hidden]{display:none}
+#routeMap{background:#10151c;z-index:1}
+#routeMap .leaflet-container{background:#10151c}
+li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
 #mapStatus{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:18px;text-align:center;color:#8fa0b3;font-size:14px}
 #mapStatus[hidden]{display:none}
 .credit{margin:8px 0 0;font-size:12px;color:#7b899a}
@@ -51,6 +56,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       <img id="map" alt="实时路线图" hidden>
       <img id="baseMap" alt="路线预览底图" hidden>
       <canvas id="sketch" hidden></canvas>
+      <div id="routeMap" hidden></div>
       <p id="mapStatus">路线图需要车辆行驶中、有定位并已设置目的地</p>
     </div>
     <p id="routeInfo" class="credit"></p>
@@ -90,6 +96,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
     <button id="clear" class="secondary" type="button">清除目的地</button>
   </section>
 </main>
+<script src="/nav_search/vendor/leaflet/leaflet.js"></script>
 <script>
 (function () {
   var form = document.getElementById('form');
@@ -114,6 +121,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
   var useBaseMap = document.getElementById('useBaseMap');
   var grayBaseMap = document.getElementById('grayBaseMap');
   var baseProvider = document.getElementById('baseProvider');
+  var routeMapEl = document.getElementById('routeMap');
   var mapUrl = null;
   var mapTimer = null;
   var baseMapToken = 0;     // 只显示最后一次预览请求对应的底图
@@ -124,6 +132,10 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
   var origin = null;         // 手动选择的出发地
   var destinationPlace = null;
   var searchTarget = 'destination';
+  var routeMap = null;       // Leaflet 实例，首次展示候选路线时创建
+  var routeLayerGroup = null;
+  var pickedLine = null;     // 当前选中的候选路线（再点一次开始导航）
+  var ROUTE_COLORS = {0: '#1677ff', 1: '#00b96b', 2: '#faad14'};
 
   function api(path, options) {
     return fetch('/nav_search/api' + path, options || {}).then(function (response) {
@@ -171,6 +183,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
   }
 
   function choose(place, prefs) {
+    hideRouteMap();
     setStatus('正在设置目的地…');
     var payload = {
       latitude: place.latitude, longitude: place.longitude, place_name: place.place_name
@@ -184,6 +197,114 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       setStatus('目的地已设置');
       loadDestination();
     }).catch(function (error) { setStatus(error.message); });
+  }
+
+  // ===== 候选路线交互地图（自托管 Leaflet + 高德在线瓦片，支持缩放平移）=====
+  // 高德瓦片是 GCJ-02 坐标系；candidates 返回的路线点已是 WGS84，
+  // 画线前先做 WGS84→GCJ02 偏移，否则路线和道路差几百米。
+  var GCJ_A = 6378245.0;
+  var GCJ_EE = 0.00669342162296594323;
+
+  function gcjTransformLat(x, y) {
+    var ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+    ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320.0 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+    return ret;
+  }
+
+  function gcjTransformLng(x, y) {
+    var ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+    ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+    ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+    return ret;
+  }
+
+  // 输出 [lat, lng]，直接喂给 Leaflet。
+  function wgs84ToLeaflet(lng, lat) {
+    if (lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271) { return [lat, lng]; }
+    var dlat = gcjTransformLat(lng - 105.0, lat - 35.0);
+    var dlng = gcjTransformLng(lng - 105.0, lat - 35.0);
+    var radlat = lat / 180.0 * Math.PI;
+    var magic = 1 - GCJ_EE * Math.sin(radlat) * Math.sin(radlat);
+    var sqrtmagic = Math.sqrt(magic);
+    dlat = (dlat * 180.0) / ((GCJ_A * (1 - GCJ_EE)) / (magic * sqrtmagic) * Math.PI);
+    dlng = (dlng * 180.0) / (GCJ_A / sqrtmagic * Math.cos(radlat) * Math.PI);
+    return [lat + dlat, lng + dlng];
+  }
+
+  function routeLengthText(distance) {
+    return distance >= 1000 ? (distance / 1000).toFixed(1) + ' km' : Math.round(distance) + ' m';
+  }
+
+  function hideRouteMap() {
+    routeMapEl.hidden = true;
+    pickedLine = null;
+  }
+
+  // 点选路线：第一次点高亮（地图加粗 + 卡片描边），再点同一条直接开始导航。
+  function pickRoute(item, line) {
+    if (pickedLine) { pickedLine.setStyle({weight: 6, opacity: 0.9}); }
+    pickedLine = line;
+    line.setStyle({weight: 10, opacity: 1});
+    line.bringToFront();
+    var cards = routes.querySelectorAll('li[data-route-index]');
+    for (var i = 0; i < cards.length; i++) {
+      cards[i].firstChild.classList.toggle('picked',
+        cards[i].getAttribute('data-route-index') === String(item.route_index));
+    }
+    setStatus('已选「' + item.label + '」：再点该路线或右侧卡片开始导航');
+  }
+
+  function showCandidateMap(items) {
+    if (typeof L === 'undefined') { return; } // vendor 资源没加载出来时卡片仍可用
+    baseMap.hidden = true;
+    map.hidden = true;
+    sketch.hidden = true;
+    mapStatus.hidden = true;
+    routeMapEl.hidden = false;
+    if (!routeMap) {
+      routeMap = L.map(routeMapEl);
+      L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+        subdomains: '1234', maxZoom: 18, minZoom: 3, attribution: '© 高德地图'
+      }).addTo(routeMap);
+      routeLayerGroup = L.layerGroup().addTo(routeMap);
+    }
+    routeMap.invalidateSize();
+    routeLayerGroup.clearLayers();
+    pickedLine = null;
+    var bounds = null;
+    var endpoints = null;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var latlngs = [];
+      var points = item.points || [];
+      for (var j = 0; j < points.length; j++) {
+        var ll = wgs84ToLeaflet(points[j][0], points[j][1]);
+        latlngs.push(ll);
+        bounds = bounds ? bounds.extend(ll) : L.latLngBounds(ll, ll);
+      }
+      if (!endpoints && latlngs.length >= 2) { endpoints = [latlngs[0], latlngs[latlngs.length - 1]]; }
+      if (latlngs.length < 2) { continue; }
+      var color = ROUTE_COLORS[item.route_index] || ROUTE_COLORS[i] || '#1677ff';
+      var line = L.polyline(latlngs, {color: color, weight: 6, opacity: 0.9}).addTo(routeLayerGroup);
+      line.bindTooltip(item.label + ' · ' + routeLengthText(item.distance), {sticky: true});
+      line.on('click', (function (card, poly) {
+        return function () {
+          if (pickedLine === poly) {
+            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index});
+          } else {
+            pickRoute(card, poly);
+          }
+        };
+      })(item, line));
+    }
+    if (endpoints) {
+      L.circleMarker(endpoints[0], {radius: 7, color: '#fff', weight: 2, fillColor: '#2ecc71', fillOpacity: 1}).addTo(routeLayerGroup);
+      L.circleMarker(endpoints[1], {radius: 7, color: '#fff', weight: 2, fillColor: '#ff4d4f', fillOpacity: 1}).addTo(routeLayerGroup);
+    }
+    if (bounds) { routeMap.fitBounds(bounds, {padding: [28, 28]}); }
   }
 
   // 高德式候选卡片：选好目的地后先拉三条候选路线（最快/最短/躲避拥堵），
@@ -200,12 +321,17 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       for (var i = 0; i < items.length; i++) {
         var item = items[i];
         var li = document.createElement('li');
+        li.setAttribute('data-route-index', item.route_index);
         var button = document.createElement('button');
         button.type = 'button';
-        button.textContent = item.label;
+        var dot = document.createElement('span');
+        dot.className = 'dot';
+        dot.style.background = ROUTE_COLORS[item.route_index] || '#1677ff';
+        button.appendChild(dot);
+        button.appendChild(document.createTextNode(item.label));
         var meta = document.createElement('span');
         meta.className = 'meta';
-        meta.textContent = (item.distance >= 1000 ? (item.distance / 1000).toFixed(1) + ' km' : Math.round(item.distance) + ' m')
+        meta.textContent = routeLengthText(item.distance)
           + ' · ' + Math.round(item.duration / 60) + ' 分钟'
           + (item.tolls ? ' · 过路费 ' + item.tolls + ' 元' : '');
         button.appendChild(meta);
@@ -219,6 +345,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
         routes.appendChild(li);
       }
       setStatus('找到 ' + items.length + ' 条候选路线，点选一条开始导航');
+      showCandidateMap(items);
     }).catch(function (error) {
       setStatus(error.message + '，已按默认路线设置目的地');
       choose(destinationPlace);
@@ -274,6 +401,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
   // 预览由本页面自己的后端算（高德优先），不需要车机 GPS 或 mapsd 渲染。
   function loadPreview() {
     if (!destinationPlace) { setStatus('请先搜索并选择一个目的地'); return; }
+    hideRouteMap();
     var url = '/route?destination=' + destinationPlace.latitude + ',' + destinationPlace.longitude;
     if (origin) { url += '&origin=' + origin.latitude + ',' + origin.longitude; }
     preview.disabled = true;
@@ -431,14 +559,13 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
     fetch('/nav_search/map.png', { cache: 'no-store' }).then(function (response) {
       // 没有实时图时，优先保留已加载的高德底图，不要把它刷回折线。
       if (response.status === 204) {
-        if (baseMap.hidden) { showSketch(); }
+        if (baseMap.hidden && routeMapEl.hidden) { showSketch(); }
         return;
       }
       if (!response.ok) { throw new Error('地图 HTTP ' + response.status); }
       return response.blob().then(function (blob) {
-        // 用户正在看预览底图（点过「预览路线」）时，不要用车机实时小图
-        // 覆盖，否则全路线图闪现 1.5 秒就被刷掉；重新预览或清除目的地可恢复。
-        if (!baseMap.hidden) { return; }
+        // 用户正在看预览底图或候选路线交互地图时，不要用车机实时小图覆盖。
+        if (!baseMap.hidden || !routeMapEl.hidden) { return; }
         if (mapUrl) { URL.revokeObjectURL(mapUrl); }
         mapUrl = URL.createObjectURL(blob);
         map.src = mapUrl;
@@ -457,7 +584,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
         mapStatus.textContent = '路线图暂不可用';
         return;
       }
-      if (baseMap.hidden) { showSketch(); }
+      if (baseMap.hidden && routeMapEl.hidden) { showSketch(); }
     });
   }
 
@@ -540,6 +667,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       destinationPlace = null;
       route = null;
       routes.innerHTML = '';
+      hideRouteMap();
       renderRouteInfo();
       showSketch();
     }).catch(function (error) {

@@ -196,6 +196,8 @@ class ConfigWeb:
                         self.proxy_nav_api('GET')
                     elif self.path == '/nav_search/map.png':
                         self.proxy_nav_map()
+                    elif self.path.startswith('/nav_search/vendor/'):
+                        self.send_vendor_file()
                     else:
                         self.send_error(404, f"{self.path} Page not found")
 
@@ -256,6 +258,42 @@ class ConfigWeb:
                     print(f"客户端连接中断: {e}")
                 except Exception as e:
                     print(f"发送导航搜索页面错误: {e}")
+
+            # /nav_search/vendor/* -> 本目录 vendor/ 下的静态资源（自托管 Leaflet 等），
+            # 车机不一定能访问公网 CDN，页面资源全部走本机。
+            VENDOR_TYPES = {
+                '.js': 'application/javascript; charset=utf-8',
+                '.css': 'text/css; charset=utf-8',
+                '.png': 'image/png',
+                '.svg': 'image/svg+xml',
+                '.woff': 'font/woff',
+                '.woff2': 'font/woff2',
+            }
+
+            def send_vendor_file(self):
+                name = urllib.parse.unquote(urllib.parse.urlparse(self.path).path[len('/nav_search/vendor/'):])
+                safe = os.path.normpath(name).lstrip('/')
+                root = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor')
+                full = os.path.normpath(os.path.join(root, safe))
+                if (not safe or safe.startswith('.')
+                        or not full.startswith(os.path.normpath(root) + os.sep)
+                        or not os.path.isfile(full)):
+                    self.send_error(404, 'vendor file not found')
+                    return
+                ext = os.path.splitext(full)[1].lower()
+                try:
+                    with open(full, 'rb') as handle:
+                        payload = handle.read()
+                except OSError:
+                    self.send_error(404, 'vendor file not found')
+                    return
+                self.send_response(200)
+                self.send_header('Content-Type', self.VENDOR_TYPES.get(ext, 'application/octet-stream'))
+                self.send_header('Content-Length', str(len(payload)))
+                self.send_header('Cache-Control', 'public, max-age=86400')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.safe_write(payload)
 
             def proxy_nav_api(self, method):
                 """把 /nav_search/api/* 转发给 carrot_server (127.0.0.1:7000)。
