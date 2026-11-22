@@ -633,6 +633,36 @@ window.HomeDrive = (() => {
     return null;
   }
 
+  // spec §7.4: 运行态 CameraCalibSet (gateway) 是相机内参的唯一真源, 上面的
+  // ROAD_CAMERA_PROFILES 静态表只在 gateway 快照到达前临时兜底。calibGateway
+  // 是服务端 camera_calib.to_json() 的投影: cams 按 Cam 枚举 id 排列, ROAD=0。
+  // 网关一旦生效, 即使后续快照 invalid 也沿用最后有效值, 不回退静态表。
+  let _gatewayCalibSignature = "";
+  function applyGatewayCamera(calibGateway) {
+    const hadGateway = _gatewayCalibSignature !== "";
+    const road = (calibGateway?.cams || []).find((cam) => cam?.id === 0);
+    if (!road || !road.valid) return hadGateway;
+    const fx = Number(road.fx), fy = Number(road.fy);
+    const width = Number(road.width), height = Number(road.height);
+    if (!(fx > 0 && fy > 0 && width > 0 && height > 0)) return hadGateway;
+    _roadCameraProfileResolved = true;
+    const signature = `${calibGateway.seq}|${width}x${height}|${fx}|${fy}`;
+    if (signature === _gatewayCalibSignature) return true;
+    _gatewayCalibSignature = signature;
+    _roadCameraProfileKey = "gateway";
+    BASE_CAMERA.width = width;
+    BASE_CAMERA.height = height;
+    BASE_CAMERA.focalX = fx;
+    BASE_CAMERA.focalY = fy;
+    roadOverlayProjection.resetFrame(performance.now());
+    transformSignature = "";
+    _forceNextRender = true;
+    try {
+      console.log("[carrot-vision] gateway camera:", { seq: calibGateway.seq, config: { width, height, focalX: fx, focalY: fy } });
+    } catch (_) {}
+    return true;
+  }
+
   function applyRoadCameraProfile(deviceType, sensor) {
     const selected = selectRoadCameraProfile(deviceType, sensor);
     if (!selected) return _roadCameraProfileResolved;
