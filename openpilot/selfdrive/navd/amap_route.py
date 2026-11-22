@@ -34,16 +34,18 @@ def nav_params(path: Path | None = None) -> dict[str, Any]:
   """nav_params.json, re-read only when the file changes; {} when unavailable."""
   target = Path(path) if path is not None else NAV_PARAMS_PATH
   try:
-    mtime = target.stat().st_mtime_ns
+    stat = target.stat()
+    # mtime 在部分文件系统上粒度粗（连续两次写入可能同值），补上文件大小
+    signature = (stat.st_mtime_ns, stat.st_size)
   except OSError:
     return {}
-  if _CACHE['mtime'] != mtime:
+  if _CACHE['mtime'] != signature:
     try:
       data = json.loads(target.read_text(encoding='utf-8'))
     except (OSError, ValueError):
       data = {}
     _CACHE['data'] = data if isinstance(data, dict) else {}
-    _CACHE['mtime'] = mtime
+    _CACHE['mtime'] = signature
   return _CACHE['data']
 
 
@@ -133,7 +135,14 @@ def _coordinate(pair) -> str:
   return f'{lng:.6f},{lat:.6f}'
 
 
-def request_params(points: list[tuple[float, float]], key: str) -> dict[str, str]:
+# 路线候选策略：v3 strategy=11 一次请求固定返回三条路径（时间最短/距离最短/躲避拥堵），
+# paths 顺序与 ROUTE_LABELS 一一对应；网页候选卡片与 navd 重规划共用同一 strategy，
+# 同参数短时间重请求的路径是确定的，保证「点哪条走哪条」。
+ROUTE_STRATEGY = '11'
+ROUTE_LABELS = ('最快', '最短', '躲避拥堵')
+
+
+def request_params(points: list[tuple[float, float]], key: str, strategy: str = '0') -> dict[str, str]:
   """AMap driving query for WGS84 (longitude, latitude) origin/waypoints/destination."""
   if len(points) < 2:
     raise ValueError('a route needs an origin and a destination')
@@ -142,7 +151,8 @@ def request_params(points: list[tuple[float, float]], key: str) -> dict[str, str
     'origin': _coordinate(points[0]),
     'destination': _coordinate(points[-1]),
     # 0 = 速度优先: closest to Mapbox's driving-traffic default.
-    'strategy': '0',
+    # 11 = 一次返回三条候选（最快/最短/躲避拥堵），候选卡片用。
+    'strategy': strategy,
     'extensions': 'base',
     'output': 'json',
   }
@@ -218,8 +228,12 @@ def _polyline(text: str) -> list[list[float]]:
   return points
 
 
-def parse(body: Any) -> dict[str, Any] | None:
-  """AMap driving response -> Mapbox-shaped {'routes': [{'legs': [{'steps': [...]}]}]}."""
+def parse(body: Any, path_index: int = 0) -> dict[str, Any] | None:
+  """AMap driving response -> Mapbox-shaped {'routes': [{'legs': [{'steps': [...]}]}]}.
+
+  path_index selects one of the alternative paths returned by multi-result
+  strategies (e.g. strategy=11); it falls back to paths[0] when out of range.
+  """
   if not isinstance(body, dict) or str(body.get('status', '0')) != '1':
     return None
   route = body.get('route')
@@ -228,9 +242,10 @@ def parse(body: Any) -> dict[str, Any] | None:
   paths = route.get('paths')
   if not isinstance(paths, list) or not paths or not isinstance(paths[0], dict):
     return None
+  selected = paths[path_index] if 0 < path_index < len(paths) and isinstance(paths[path_index], dict) else paths[0]
 
   steps: list[dict[str, Any]] = []
-  for raw in paths[0].get('steps') or []:
+  for raw in selected.get('steps') or []:
     if not isinstance(raw, dict):
       continue
     points = _polyline(raw.get('polyline', ''))

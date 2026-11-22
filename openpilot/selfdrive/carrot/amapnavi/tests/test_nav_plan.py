@@ -11,7 +11,7 @@ SHENZHEN = (114.380312, 22.721993)
 
 
 def test_parse_point_reads_lat_lon_and_rejects_garbage():
-  assert nav_plan.parse_point('39.916527,116.397128') == pytest.approx(BEIJING[::-1])
+  assert nav_plan.parse_point('39.916527,116.397128') == pytest.approx(BEIJING)
   for value in ('', 'x', '91,0', '0,181', 'nan,0'):
     assert nav_plan.parse_point(value) is None
 
@@ -140,3 +140,43 @@ def test_static_map_png_rejects_api_errors(monkeypatch, tmp_path):
                       lambda request, timeout=None: _FakeResponse(b'{"status":"0"}'))
   with pytest.raises(nav_plan.PlanError):
     nav_plan.static_map_png([BEIJING, SHENZHEN], 'key', cache_dir=str(tmp_path))
+
+
+def candidates_body(distances):
+  paths = []
+  # 高德返回的 polyline 是 GCJ-02，fixture 也用 GCJ 坐标模拟真实数据
+  start, end = amap_route.wgs84_to_gcj02(*BEIJING), amap_route.wgs84_to_gcj02(*SHENZHEN)
+  for distance, duration in distances:
+    paths.append({'distance': str(distance), 'duration': str(duration), 'tolls': '0',
+                  'steps': [{'polyline': f'{start[0]:.6f},{start[1]:.6f};{end[0]:.6f},{end[1]:.6f}'}]})
+  return {'status': '1', 'route': {'paths': paths}}
+
+
+def test_candidates_returns_labelled_cards(monkeypatch):
+  bodies = iter([candidates_body([(900, 60), (1000, 50), (1200, 70)])])
+  monkeypatch.setattr(nav_plan, '_get_json', lambda url, timeout: next(bodies))
+  cards = nav_plan.candidates(BEIJING, SHENZHEN, amap_key='amap.test')
+  assert [card['label'] for card in cards] == list(amap_route.ROUTE_LABELS)
+  assert [card['route_index'] for card in cards] == [0, 1, 2]
+  assert all(card['strategy'] == 11 for card in cards)
+  assert cards[0]['distance'] == 900 and cards[0]['duration'] == 60 and cards[0]['tolls'] == 0
+  assert len(cards[0]['points']) == 2
+  assert cards[0]['points'][0] == pytest.approx([BEIJING[0], BEIJING[1]], abs=2e-6)
+
+
+def test_candidates_dedupes_and_requires_a_key(monkeypatch):
+  # strategy=11 偶尔会给两条完全一样的路；同 distance+duration 只留一张卡片
+  bodies = iter([candidates_body([(900, 60), (900, 60), (1200, 70)])])
+  monkeypatch.setattr(nav_plan, '_get_json', lambda url, timeout: next(bodies))
+  cards = nav_plan.candidates(BEIJING, SHENZHEN, amap_key='amap.test')
+  assert [card['route_index'] for card in cards] == [0, 2]
+
+  with pytest.raises(nav_plan.PlanError):
+    nav_plan.candidates(BEIJING, SHENZHEN, amap_key='')
+
+
+def test_candidates_rejects_failed_body(monkeypatch):
+  monkeypatch.setattr(nav_plan, '_get_json', lambda url, timeout: {'status': '0', 'info': 'INVALID_KEY'})
+  with pytest.raises(nav_plan.PlanError) as error:
+    nav_plan.candidates(BEIJING, SHENZHEN, amap_key='amap.test')
+  assert 'INVALID_KEY' in str(error.value)

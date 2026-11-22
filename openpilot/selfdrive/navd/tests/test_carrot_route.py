@@ -1,4 +1,5 @@
 """carrot_route.install() 的分派行为：upstream navd.py 本身不需要改动逻辑。"""
+import json
 import time
 from types import SimpleNamespace
 
@@ -107,8 +108,9 @@ def test_amap_request_is_rewritten_before_poll_route(hooked, monkeypatch):
   # 只配高德 key 时也要能通过 upstream 的 "mapbox_token 非空" 闸门
   assert engine.mapbox_token == carrot_route._AMAP_TOKEN_PLACEHOLDER
   engine.calculate_route(NEARBY)
-  fn, (url, params) = engine.executor.calls[0]
+  fn, (url, params, path_index) = engine.executor.calls[0]
   assert url == amap_route.AMAP_URL and params['key'] == 'key.test'
+  assert path_index == 0
   assert engine.pending_token == engine.mapbox_token
   response = fn(url, params)
   assert response['routes'][0]['legs'][0]['steps'][0]['bannerInstructions'][0]['primary']['modifier'] == 'left'
@@ -152,3 +154,27 @@ def test_invalid_waypoints_are_rejected(hooked, monkeypatch):
   engine.refresh_token()
   engine.calculate_route(NEARBY)
   assert engine.executor.calls == []
+
+
+def test_destination_prefs_read_selected_route(hooked):
+  engine = hooked()
+  prefs = {'latitude': 39.926527, 'longitude': 116.407128, 'strategy': 11, 'route_index': 2}
+  engine.params_memory = FakeParams(NavDestinationTemporary=json.dumps(prefs))
+  assert carrot_route._destination_prefs(engine, NEARBY) == (11, 2)
+  # 经纬度不匹配（参数刷新竞态）与坏 JSON 都回退默认速度优先
+  assert carrot_route._destination_prefs(engine, BEIJING) == (0, 0)
+  engine.params_memory = FakeParams(NavDestinationTemporary='not json')
+  assert carrot_route._destination_prefs(engine, NEARBY) == (0, 0)
+
+
+def test_calculate_route_passes_strategy_and_path_index(hooked, monkeypatch):
+  set_provider(monkeypatch, 'amap')
+  engine = hooked()
+  engine.refresh_token()
+  prefs = {'latitude': 39.926527, 'longitude': 116.407128, 'strategy': 11, 'route_index': 2}
+  engine.params_memory = FakeParams(NavDestinationTemporary=json.dumps(prefs))
+  engine.calculate_route(NEARBY)
+  fn, args = engine.executor.calls[0]
+  url, params, path_index = args
+  assert url == amap_route.AMAP_URL
+  assert params['strategy'] == '11' and path_index == 2

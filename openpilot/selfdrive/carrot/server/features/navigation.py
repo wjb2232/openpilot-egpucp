@@ -17,6 +17,8 @@ import time
 from aiohttp import web
 
 from openpilot.common.params import Params
+from openpilot.selfdrive.navd import amap_route
+from openpilot.selfdrive.carrot.amapnavi import nav_plan
 from ..config import WEB_DIR
 from ..services.params import get_param_value, set_param_value
 from openpilot.selfdrive.navigation.preview import PREVIEW_PATH, WEB_DEMAND_PATH, preview_fresh, preview_reason
@@ -40,7 +42,15 @@ def destination(value):
   lat, lon = float(value['latitude']), float(value['longitude'])
   if not math.isfinite(lat) or not math.isfinite(lon) or abs(lat) > 85.05112878 or abs(lon) > 180:
     raise ValueError('invalid coordinates')
-  return {'latitude': lat, 'longitude': lon, 'place_name': str(value.get('place_name', 'Destination'))[:256]}
+  result = {'latitude': lat, 'longitude': lon, 'place_name': str(value.get('place_name', 'Destination'))[:256]}
+  # carrot: 网页候选卡片选中的路线（高德 strategy + paths 下标），navd 重规划时使用；
+  # 缺省/非法时不写入这两个键，旧目的地格式保持兼容。
+  try:
+    result['strategy'] = min(20, max(0, int(value.get('strategy', 0))))
+    result['route_index'] = min(len(amap_route.ROUTE_LABELS) - 1, max(0, int(value.get('route_index', 0))))
+  except (TypeError, ValueError):
+    pass
+  return result
 
 
 def _search_settings():
@@ -117,6 +127,27 @@ async def clear_destination(request):
   return web.json_response({'destination': None})
 
 
+async def candidates(request):
+  """Alternative routes for the selection cards; origin defaults to the live fix."""
+  destination_point = nav_plan.parse_point(request.query.get('destination'))
+  if destination_point is None:
+    return web.json_response({'error': 'destination 需要 lat,lon 格式'}, status=400, headers=NO_STORE)
+  origin = nav_plan.parse_point(request.query.get('origin'))
+  if origin is None:
+    origin = nav_plan.live_position(Params('/dev/shm/params'))
+  if origin is None:
+    return web.json_response({'error': '暂时没有定位，稍后再试'}, status=400, headers=NO_STORE)
+  _, amap_key, _, _ = _search_settings()
+  try:
+    result = await asyncio.get_running_loop().run_in_executor(
+      None, lambda: nav_plan.candidates(origin, destination_point, amap_key=amap_key))
+  except nav_plan.PlanError as exc:
+    return web.json_response({'error': str(exc)}, status=502, headers=NO_STORE)
+  except (ValueError, KeyError, TypeError, IndexError, AttributeError):
+    return web.json_response({'error': '候选路线不可用.'}, status=502, headers=NO_STORE)
+  return web.json_response({'candidates': result}, headers=NO_STORE)
+
+
 async def preview(request):
   try:
     WEB_DEMAND_PATH.touch()
@@ -135,4 +166,5 @@ def register(app):
   app.router.add_get('/api/navigation/destination', get_destination)
   app.router.add_post('/api/navigation/destination', set_destination)
   app.router.add_delete('/api/navigation/destination', clear_destination)
+  app.router.add_get('/api/navigation/candidates', candidates)
   app.router.add_get('/api/navigation/map.png', preview)

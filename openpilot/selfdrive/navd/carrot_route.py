@@ -57,6 +57,22 @@ def _middle_points(raw):
   return middle
 
 
+def _destination_prefs(engine, destination):
+  """NavDestinationTemporary 里的 strategy/route_index（网页候选卡片写入）。
+
+  经纬度与当前目的地比对防串号（目的地下发晚于参数刷新的瞬间），不匹配
+  或旧格式回 (0, 0) = upstream 默认的速度优先。
+  """
+  try:
+    raw = json.loads(engine.params_memory.get('NavDestinationTemporary') or b'')
+    if (abs(float(raw['latitude']) - destination.latitude) < 1e-6 and
+        abs(float(raw['longitude']) - destination.longitude) < 1e-6):
+      return int(raw.get('strategy', 0)), int(raw.get('route_index', 0))
+  except (OSError, ValueError, TypeError, KeyError, AttributeError):
+    pass
+  return 0, 0
+
+
 def install(engine_cls):
   """把高德 provider 装到 upstream 的 RouteEngine；重复调用无副作用。"""
   if getattr(engine_cls, '_carrot_route_installed', False):
@@ -67,8 +83,8 @@ def install(engine_cls):
   calculate_route = engine_cls.calculate_route
   request_route = engine_cls.request_route  # @staticmethod 取出后是普通函数
 
-  def amap_request(url, params):
-    parsed = amap_route.parse(request_route(url, params))
+  def amap_request(url, params, path_index=0):
+    parsed = amap_route.parse(request_route(url, params), path_index)
     if parsed is None:
       _warn('navd: AMap returned no usable route')
     return parsed
@@ -119,8 +135,10 @@ def install(engine_cls):
     self.pending_destination = destination
     self.pending_token = self.mapbox_token
     self._carrot_next_route_at = time.monotonic() + AMAP_MIN_INTERVAL
+    strategy, route_index = _destination_prefs(self, destination)
     self.pending = self.executor.submit(amap_request, amap_route.AMAP_URL,
-                                        amap_route.request_params(points, self._carrot_amap_key))
+                                        amap_route.request_params(points, self._carrot_amap_key, strategy=str(strategy)),
+                                        route_index)
 
   engine_cls.refresh_token = patched_refresh_token
   engine_cls.recompute_route = patched_recompute_route

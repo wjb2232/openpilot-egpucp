@@ -108,3 +108,18 @@ def test_route_settings_reads_provider_and_key(tmp_path):
 
   path.write_text(json.dumps({'NavRouteProvider': 'mapbox', 'AmapWebKey': 'amap.test'}), encoding='utf-8')
   assert amap_route.route_settings('pk.test', path)[1] == 'mapbox'
+
+
+def test_request_params_strategy_passthrough():
+  params = amap_route.request_params(WGS_INPUT, 'key.test', strategy=amap_route.ROUTE_STRATEGY)
+  assert params['strategy'] == '11'
+
+
+def test_parse_picks_requested_path_and_falls_back():
+  body = amap_body()
+  first = amap_route.parse(body)
+  body['route']['paths'].append({'steps': [dict(body['route']['paths'][0]['steps'][0], distance='700')]})
+  second = amap_route.parse(body, path_index=1)
+  assert second['routes'][0]['legs'][0]['steps'][0]['distance'] == 700
+  # 越界下标回退第一条，导航下发不会因为候选卡片数量变化而失败
+  assert amap_route.parse(body, path_index=9) == first

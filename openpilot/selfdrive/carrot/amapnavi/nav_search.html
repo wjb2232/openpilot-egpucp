@@ -77,6 +77,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
     <p id="provider" class="hint"></p>
     <ul id="results"></ul>
     <div id="current">当前目的地：未设置</div>
+    <ul id="routes"></ul>
     <div id="originBox">
       <label for="origin">出发地</label>
       <div class="row">
@@ -97,6 +98,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
   var status = document.getElementById('status');
   var provider = document.getElementById('provider');
   var results = document.getElementById('results');
+  var routes = document.getElementById('routes');
   var current = document.getElementById('current');
   var clear = document.getElementById('clear');
   var map = document.getElementById('map');
@@ -168,16 +170,59 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
     }
   }
 
-  function choose(place) {
+  function choose(place, prefs) {
     setStatus('正在设置目的地…');
+    var payload = {
+      latitude: place.latitude, longitude: place.longitude, place_name: place.place_name
+    };
+    if (prefs) { payload.strategy = prefs.strategy; payload.route_index = prefs.route_index; }
     api('/destination', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(place)
+      body: JSON.stringify(payload)
     }).then(function () {
       setStatus('目的地已设置');
       loadDestination();
     }).catch(function (error) { setStatus(error.message); });
+  }
+
+  // 高德式候选卡片：选好目的地后先拉三条候选路线（最快/最短/躲避拥堵），
+  // 点选一条才下发导航；候选接口失败时回退为直接按默认路线设置目的地。
+  function loadCandidates() {
+    routes.innerHTML = '';
+    if (!destinationPlace) { return; }
+    setStatus('正在查询候选路线…');
+    var url = '/candidates?destination=' + destinationPlace.latitude + ',' + destinationPlace.longitude;
+    if (origin) { url += '&origin=' + origin.latitude + ',' + origin.longitude; }
+    api(url).then(function (data) {
+      var items = data.candidates || [];
+      if (!items.length) { throw new Error('没有候选路线'); }
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        var li = document.createElement('li');
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = item.label;
+        var meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = (item.distance >= 1000 ? (item.distance / 1000).toFixed(1) + ' km' : Math.round(item.distance) + ' m')
+          + ' · ' + Math.round(item.duration / 60) + ' 分钟'
+          + (item.tolls ? ' · 过路费 ' + item.tolls + ' 元' : '');
+        button.appendChild(meta);
+        button.onclick = (function (card) {
+          return function () {
+            routes.innerHTML = '';
+            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index});
+          };
+        })(item);
+        li.appendChild(button);
+        routes.appendChild(li);
+      }
+      setStatus('找到 ' + items.length + ' 条候选路线，点选一条开始导航');
+    }).catch(function (error) {
+      setStatus(error.message + '，已按默认路线设置目的地');
+      choose(destinationPlace);
+    });
   }
 
   function loadDestination() {
@@ -203,7 +248,12 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       setStatus('出发地已设置，点「预览路线」查看');
       return;
     }
-    choose(place);
+    // 高德式流程：先选目的地，拉出三条候选路线卡片，点选其中一条才真正下发。
+    destinationPlace = place;
+    results.innerHTML = '';
+    current.innerHTML = '当前目的地：<b></b>';
+    current.querySelector('b').textContent = label(place);
+    loadCandidates();
   }
 
   function loadPosition() {
@@ -486,6 +536,7 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
       current.textContent = '当前目的地：未设置';
       destinationPlace = null;
       route = null;
+      routes.innerHTML = '';
       renderRouteInfo();
       showSketch();
     }).catch(function (error) {
