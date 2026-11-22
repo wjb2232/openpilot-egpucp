@@ -2582,8 +2582,13 @@ window.HomeDrive = (() => {
     const liveCalibration = overlayState.liveCalibration || null;
     const roadCameraState = overlayState.roadCameraState || null;
     // gateway first (spec §7.4): the running CameraCalibSet is the truth;
-    // the static profile table only fills in while no gateway has arrived
-    const gatewayApplied = applyGatewayCamera(liveCalibration?.calibGateway);
+    // the static profile table only fills in while no gateway has arrived.
+    // The compact WS channel carries the set flat (calibSeq + cams[]); the
+    // JSON snapshot path nests it under calibGateway — normalize both.
+    const calibGateway = (liveCalibration?.cams?.length)
+      ? { seq: liveCalibration.calibSeq, cams: liveCalibration.cams }
+      : liveCalibration?.calibGateway;
+    const gatewayApplied = applyGatewayCamera(calibGateway);
     const cameraProfileReady = gatewayApplied || applyRoadCameraProfile(hudState?.deviceState?.deviceType, roadCameraState?.sensor);
     const { selectedPath, pathStyle } = roadOverlayPolicy.resolve(overlayState, hudState, paramsState);
     const plotData = buildPlotData(overlayState, hudState);

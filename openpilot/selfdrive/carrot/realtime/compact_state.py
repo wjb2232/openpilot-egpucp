@@ -50,6 +50,20 @@ XYZ_MEASUREMENT_SCHEMA = (
   ("valid", "bool"),
 )
 
+# liveCalibration.gateway (CameraCalibSet, capnp cams @15) 웹용 서브셋:
+# spec §7.4 웹 카메라 내진의 진원. fx/fy/cx/cy 는 intrinsics 리스트 순서
+# (camera_calib._deserialize_camera 참조). ROAD (id=0) 만 소비한다.
+CAM_GATEWAY_SCHEMA = (
+  ("id", "i32"),
+  ("width", "i32"),
+  ("height", "i32"),
+  ("fx", "f32", ("intrinsics", 0)),
+  ("fy", "f32", ("intrinsics", 1)),
+  ("cx", "f32", ("intrinsics", 2)),
+  ("cy", "f32", ("intrinsics", 3)),
+  ("valid", "bool"),
+)
+
 # ── carrotNavi (TMap) 압축 서브셋 ──────────────────────────────────
 # 전체 CarrotNaviState 를 보내지 않는다. AR 앵커가 "무엇을 어디서 안내할지"
 # 정하는 데 필요한 필드만 고른다. route.polyline은 Phase 5의 실제 접선 방향,
@@ -329,6 +343,11 @@ SERVICE_SCHEMAS: dict[str, tuple[int, tuple[tuple[Any, ...], ...]]] = {
     ("validBlocks", "i32"),
     ("rpyCalib", "f32_list"),  # calib-legacy-allow: pending-migration (JS field table; gateway feeds new code)
     ("height", "f32_list"),
+    # Appended (kept at the end for schema evolution; JS decoder append-tolerant).
+    # spec §7.4: gateway CameraCalibSet (capnp cams @15) 是 web 相机内参真源,
+    # fx/fy/cx/cy 按 intrinsics 列表顺序取 (见 camera_calib._deserialize_camera)。
+    ("calibSeq", "u32"),
+    ("cams", ("struct_list", CAM_GATEWAY_SCHEMA)),
   )),
   "roadCameraState": (11, (
     ("frameId", "u32"),
@@ -478,11 +497,15 @@ def _field(value: Any, name: str) -> Any:
     return None
 
 
-def _field_path(value: Any, path: Sequence[str]) -> Any:
+def _field_path(value: Any, path: Sequence[Any]) -> Any:
   for name in path:
-    value = _field(value, name)
     if value is None:
       break
+    try:
+      # 整数步 = capnp list reader 下标 (如 intrinsics 列表的 fx,fy,cx,cy)
+      value = value[name] if isinstance(name, int) else getattr(value, name)
+    except Exception:
+      return None
   return value
 
 

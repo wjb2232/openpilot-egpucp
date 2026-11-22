@@ -222,7 +222,10 @@ class RawWsHub:
       # source-level encoder so a rolling source update cannot load an older
       # compact_state_pyx.so that silently omits a newly appended `started`.
       # At 2 Hz this has no meaningful device-side cost.
-      if encode_compact_frame_native is not None and service != "deviceState":
+      # Same story for liveCalibration: the gateway CameraCalibSet fields
+      # (calibSeq/cams, spec §7.4) only exist in the source-level encoder;
+      # the native one predates them. At 0.25 Hz the cost is nil.
+      if encode_compact_frame_native is not None and service not in ("deviceState", "liveCalibration"):
         try:
           frame = encode_compact_frame_native(service, payload, sequence)
         except Exception:

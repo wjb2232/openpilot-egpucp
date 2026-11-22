@@ -25,6 +25,14 @@ window.CarrotVisionCompact = (() => {
     ["z", "i16mmlist"],
   ];
   const velocity = [["x", "i16cmlist"]];
+  // liveCalibration gateway CameraCalibSet (spec §7.4, must match
+  // compact_state.py CAM_GATEWAY_SCHEMA / native order). fx/fy/cx/cy come
+  // from the intrinsics list (see camera_calib.py); ROAD (id=0) is consumed.
+  const gatewayCam = [
+    ["id", "i32"], ["width", "i32"], ["height", "i32"],
+    ["fx", "f32"], ["fy", "f32"], ["cx", "f32"], ["cy", "f32"],
+    ["valid", "bool"],
+  ];
   // y/v arrive as single-sample lists (see MODEL_LEAD_SCHEMA); the wire shape
   // is identical to any other f32 list, so "f32list" reads them unchanged.
   const modelLead = [
@@ -161,6 +169,9 @@ window.CarrotVisionCompact = (() => {
       ["calStatus", "enumname", ["uncalibrated", "calibrated", "invalid", "recalibrating"]],
       ["calCycle", "i32"], ["calPerc", "i8"],
       ["validBlocks", "i32"], ["rpyCalib", "f32list"], ["height", "f32list"],  // calib-legacy-allow: pending-migration (web gateway debt, spec §7.4)
+      // Appended (must match compact_state.py / native order). Decoder is
+      // append-tolerant, so shorter recorded frames stay decodable.
+      ["calibSeq", "u32"], ["cams", "structlist", gatewayCam],
     ]]],
     [11, ["roadCameraState", [
       ["frameId", "u32"], ["sensor", "enumname", ["unknown", "ar0231", "ox03c10", "os04c10", "imx390"]],
