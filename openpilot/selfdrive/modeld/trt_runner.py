@@ -87,6 +87,8 @@ class TrtRunner:
         self.output_names.append(n)
     self.bindings = [self.io[n]['dev'] for n in names]
     self.d2h_outputs = set(self.output_names) if self._d2h_outputs is None else set(self._d2h_outputs)
+    # skip_h2d: 调用方(如 GPU warp)直接写设备缓冲的输入, run_np 不再上传覆盖
+    self.skip_h2d: set[str] = set()
     # stateful 契约(N16 等)是 1 个 outputs + 5 个 next_state_* 输出;全部拷回。
     self.out_hosts = {n: np.zeros(int(np.prod(self.io[n]['shape'])), dtype=self.io[n]['npdt'])
                       for n in self.output_names}
@@ -120,7 +122,7 @@ class TrtRunner:
         if rc != 0:
           raise RuntimeError(f"cudaMemcpy D2D {dst}<-{src} rc={rc}")
       for n in self.input_names:
-        if n in self.feedback_pairs:
+        if n in self.feedback_pairs or n in self.skip_h2d:
           continue
         arr = inputs[n]
         if arr.dtype != self.io[n]['npdt']:

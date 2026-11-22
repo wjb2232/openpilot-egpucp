@@ -12,10 +12,12 @@ Interface is deliberately identical to ModelState:
   reset()
   .vision_input_names / .usbgpu / .frame_skip / .output_slices
 
-Warp is done with OpenCV on the CPU (same approach the c3 tree proved out) so
-nothing here touches tinygrad's CUDA context, which the TRT runner keeps
-isolated in its own context.
+Warp runs on the GPU inside the TrtRunner's own CUDA context (warp_kernel.cu,
+loaded via gpu_warp.py) when libgpuwarp.so is present, writing the warped planes
+straight into the engine's new_img device buffer; OpenCV on the CPU stays as the
+automatic fallback so nothing here touches tinygrad's CUDA context either way.
 """
+import ctypes
 import json
 import os
 
@@ -104,6 +106,9 @@ class TrtModelState:
                           np.empty((MODEL_H // 2, MODEL_W // 2), dtype=np.uint8),
                           np.empty((MODEL_H // 2, MODEL_W // 2), dtype=np.uint8))
 
+    # GPU warp 默认关闭, 仅 stateful 模式启用(new_img 输入)
+    self._gpu_warp = None
+    self._gpu_warp_msg = 'CPU warp'
     if self.stateful:
       self.state_names = [k for k in self.input_shapes if k.startswith('state_')]
       # 状态回环走设备侧: next_state_* 输出留在显存, 每帧 execute 前 D2D 回填
@@ -124,6 +129,20 @@ class TrtModelState:
       self.views = {k: np.zeros(self.input_shapes[k], dtype=self.model_dtypes[k])
                     for k in ('nav_map', 'navigation') if k in self.input_shapes}
       self._new_img = np.zeros(self.input_shapes['new_img'], dtype=self.model_dtypes['new_img'])
+      # GPU warp: 相机帧透视变换挪进 GPU, 结果直写引擎 new_img 设备缓冲
+      # (run_np 因此跳过 new_img 的 H2D)。库缺失/初始化失败自动回 CPU。
+      if os.environ.get('MODEL_GPU_WARP', '1') != '0':
+        try:
+          from openpilot.selfdrive.modeld.gpu_warp import GpuWarp
+          lib = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libgpuwarp.so')
+          if os.path.isfile(lib):
+            self._gpu_warp = GpuWarp(self.trt, lib)
+            self.trt.skip_h2d.add('new_img')
+            self._gpu_warp_msg = 'GPU warp (warp_kernel.cu)'
+          else:
+            self._gpu_warp_msg = 'CPU warp (libgpuwarp.so missing)'
+        except Exception:
+          cloudlog.exception('GPU warp init failed, CPU warp stays')
     else:
       img_shp = self.input_shapes['img']            # (1, 12, 128, 256) -> 2 frames
       n_frames = img_shp[1] // 6
@@ -138,10 +157,10 @@ class TrtModelState:
       self.desire_q = np.zeros((self.frame_skip * dp[1], dp[0], dp[2]), dtype=np.float32)
       self.prev_feat = np.zeros((1, self.feat_dim), dtype=np.float32)
 
-    log = ('big model TRT backend ready: plan=%s skip=%d feat_dim=%d%s' %
+    log = ('big model TRT backend ready: plan=%s skip=%d feat_dim=%d%s warp=%s' %
            (os.path.basename(self.plan_path), self.frame_skip,
             self.feat_dim if not self.stateful else int(np.prod(self.input_shapes['state_feat_q'][2:])),
-            ' stateful' if self.stateful else ''))
+            ' stateful' if self.stateful else '', self._gpu_warp_msg))
     try:
       cloudlog.warning(log)
     except Exception:
@@ -179,6 +198,27 @@ class TrtModelState:
     out[3] = ys[1:mh:2, 1::2]
     out[4] = us.reshape(Hh, Ww)
     out[5] = vs.reshape(Hh, Ww)
+
+  def _warp_gpu(self, buf, frame_buf, transform, cam_idx):
+    """GPU 版 _warp: 结果直写引擎 new_img 设备缓冲。调用方需已 push CUDA context。
+    输出布局与 _new_img 一致: [cam][6 平面][128 行][256 列], 平面字节偏移 =
+    cam_idx * 196608 + p * 32768。"""
+    out_dev = self.trt.io['new_img']['dev']
+    out_w, out_h = MODEL_W // 2, MODEL_H // 2
+    cam_bytes = 6 * out_w * out_h
+    if np.count_nonzero(transform) == 0:
+      # extrinsics 未到(全零矩阵奇异): 与 CPU 路径一样整块置零
+      rc = self.trt.cudart.cudaMemset(ctypes.c_void_p(out_dev + cam_idx * cam_bytes), 0, cam_bytes)
+      if rc != 0:
+        raise RuntimeError(f'cudaMemset new_img[{cam_idx}] rc={rc}')
+      return
+    src_stride = getattr(buf, 'stride', None) or self.stride
+    src_uv_offset = getattr(buf, 'uv_offset', None)
+    if src_uv_offset is None:
+      src_uv_offset = src_stride * self.y_h
+    self._gpu_warp.warp_camera(cam_idx, frame_buf, src_stride, src_uv_offset,
+                               self.cam_w, self.cam_h, transform,
+                               out_dev, cam_idx * cam_bytes, out_w, out_h)
 
   def _sample_skip(self, buf):
     return buf[::self.frame_skip].reshape(1, -1)
@@ -269,10 +309,28 @@ class TrtModelState:
 
     main_out = self._new_img[0]
     wide_out = self._new_img[1]
-    self._warp(frame_buf, transforms['img'], main_out,
-               getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
-    self._warp(big_frame_buf, transforms['big_img'], wide_out,
-               getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
+    if self._gpu_warp is not None:
+      self.trt._push()
+      try:
+        self._warp_gpu(bufs['img'], frame_buf, transforms['img'], 0)
+        self._warp_gpu(bufs['big_img'], big_frame_buf, transforms['big_img'], 1)
+      except Exception:
+        # 单帧失败即永久回退 CPU: 恢复 new_img 的 H2D 上传并补跑本帧 CPU warp
+        cloudlog.exception('GPU warp failed, falling back to CPU warp')
+        self._gpu_warp = None
+        self._gpu_warp_msg = 'CPU warp (GPU failed)'
+        self.trt.skip_h2d.discard('new_img')
+        self._warp(frame_buf, transforms['img'], main_out,
+                   getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
+        self._warp(big_frame_buf, transforms['big_img'], wide_out,
+                   getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
+      finally:
+        self.trt._pop()
+    else:
+      self._warp(frame_buf, transforms['img'], main_out,
+                 getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
+      self._warp(big_frame_buf, transforms['big_img'], wide_out,
+                 getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
 
     d = self.model_dtypes
     trt_inputs = {
