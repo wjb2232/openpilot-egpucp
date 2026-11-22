@@ -98,16 +98,32 @@ class TrtModelState:
     self.stride, self.y_h, self.uv_h, self._size = self.nv12
     self.frame_copy_size = nv12_copy_size(self.stride, self.y_h, self.uv_h)
     self.model_dtypes = {n: self.trt.io[n]['npdt'] for n in self.trt.input_names}
+    # warp 目标缓冲(两路共用, uint8 与引擎 new_img/img 输入一致), 免去每帧
+    # concatenate/stack 的多次分配拷贝
+    self._warp_scratch = (np.empty((MODEL_H, MODEL_W), dtype=np.uint8),
+                          np.empty((MODEL_H // 2, MODEL_W // 2), dtype=np.uint8),
+                          np.empty((MODEL_H // 2, MODEL_W // 2), dtype=np.uint8))
 
     if self.stateful:
       self.state_names = [k for k in self.input_shapes if k.startswith('state_')]
-      # 状态统一以 float32 缓存: TRT patch 后 next_state_* 输出是 float32, 而
-      # state_img_q 等图输入仍声明 uint8 —— 喂引擎时再按 TRT dtype cast。
-      self.state = {k: np.zeros(self.input_shapes[k], dtype=np.float32)
-                    for k in self.state_names}
+      # 状态回环走设备侧: next_state_* 输出留在显存, 每帧 execute 前 D2D 回填
+      # state_* 输入, 不再经过宿主(原路径每帧 ~8.5MB D2H + H2D 两趟拷贝)。
+      # 只有 dtype/shape 与输出完全一致的输入才可回环; state_img_q 是
+      # uint8 输入/float32 输出, 只能继续宿主缓存。
+      self.feedback_pairs = {
+        k: 'next_' + k for k in self.state_names
+        if k in self.trt.input_names and ('next_' + k) in self.trt.output_names
+        and self.trt.io[k]['npdt'] == self.trt.io['next_' + k]['npdt']
+        and self.trt.io[k]['shape'] == self.trt.io['next_' + k]['shape']
+      }
+      self.trt.feedback_pairs = self.feedback_pairs
+      self.trt.d2h_outputs = set(self.trt.output_names) - set(self.feedback_pairs.values())
+      self.state = {k: np.zeros(self.input_shapes[k], dtype=self.model_dtypes[k])
+                    for k in self.state_names if k not in self.feedback_pairs}
       # MapInput 只在 model.views 里有 nav_map 时才喂导航栅格/指令(modeld L651 注入 inputs)
       self.views = {k: np.zeros(self.input_shapes[k], dtype=self.model_dtypes[k])
                     for k in ('nav_map', 'navigation') if k in self.input_shapes}
+      self._new_img = np.zeros(self.input_shapes['new_img'], dtype=self.model_dtypes['new_img'])
     else:
       img_shp = self.input_shapes['img']            # (1, 12, 128, 256) -> 2 frames
       n_frames = img_shp[1] // 6
@@ -135,7 +151,8 @@ class TrtModelState:
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     return {k: model_outputs[np.newaxis, v] for k, v in output_slices.items()}
 
-  def _warp(self, frame_buf, M, src_stride=None, src_uv_offset=None):
+  def _warp(self, frame_buf, M, out, src_stride=None, src_uv_offset=None):
+    """NV12 -> 6 平面 [Y00,Y10,Y01,Y11,U,V] (uint8), 原地写入 out (6,H/2,W/2)。"""
     W, H = self.cam_w, self.cam_h
     src_stride = src_stride or self.stride
     src_uv_offset = src_uv_offset if src_uv_offset is not None else src_stride * self.y_h
@@ -147,18 +164,21 @@ class TrtModelState:
     # transforms carry OUTPUT->INPUT (model->camera); cv2 wants the inverse.
     # Before extrinsics arrive the matrix is all-zero -> singular, so skip.
     if np.count_nonzero(M) == 0:
-      return np.zeros((6, MODEL_H // 2, MODEL_W // 2), dtype=np.float32)
+      out[:] = 0
+      return
     M_inv = np.linalg.inv(M)
     M_uv = M_inv * np.array([[1.0, 1.0, 0.5], [1.0, 1.0, 0.5], [2.0, 2.0, 1.0]], dtype=np.float32)
-    yw = cv2.warpPerspective(y[:H, :W], M_inv, (mw, mh), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-    uw = cv2.warpPerspective(uv[:y_h // 2, :W:2], M_uv, (mw // 2, mh // 2), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-    vw = cv2.warpPerspective(uv[:y_h // 2, 1:W:2], M_uv, (mw // 2, mh // 2), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-    yuv = np.concatenate([yw.reshape(-1), uw.reshape(-1), vw.reshape(-1)]).reshape(mh * 3 // 2, mw)
+    ys, us, vs = self._warp_scratch
+    cv2.warpPerspective(y[:H, :W], M_inv, (mw, mh), dst=ys, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    cv2.warpPerspective(uv[:y_h // 2, :W:2], M_uv, (mw // 2, mh // 2), dst=us, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+    cv2.warpPerspective(uv[:y_h // 2, 1:W:2], M_uv, (mw // 2, mh // 2), dst=vs, flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
     Hh, Ww = mh // 2, mw // 2
-    return np.stack([
-      yuv[0:mh:2, 0::2], yuv[1:mh:2, 0::2], yuv[0:mh:2, 1::2], yuv[1:mh:2, 1::2],
-      yuv[mh:mh + mh // 4].reshape(Hh, Ww), yuv[mh + mh // 4:mh + mh // 2].reshape(Hh, Ww),
-    ])
+    out[0] = ys[0:mh:2, 0::2]
+    out[1] = ys[1:mh:2, 0::2]
+    out[2] = ys[0:mh:2, 1::2]
+    out[3] = ys[1:mh:2, 1::2]
+    out[4] = us.reshape(Hh, Ww)
+    out[5] = vs.reshape(Hh, Ww)
 
   def _sample_skip(self, buf):
     return buf[::self.frame_skip].reshape(1, -1)
@@ -175,6 +195,8 @@ class TrtModelState:
         buf.fill(0)
       for buf in self.views.values():
         buf.fill(0)
+      # 回环状态在设备侧: 输入+输出两端缓冲都要归零, 首帧状态才是 0
+      self.trt.zero_device_feedback()
       return
     self.img_q[:] = 0
     self.big_q[:] = 0
@@ -194,9 +216,11 @@ class TrtModelState:
     self.prev_desire[:] = inputs['desire_pulse']
 
     self.img_q[:-1] = self.img_q[1:]
-    self.img_q[-1] = self._warp(frame_buf, transforms['img'], getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
+    self._warp(frame_buf, transforms['img'], self.img_q[-1],
+               getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
     self.big_q[:-1] = self.big_q[1:]
-    self.big_q[-1] = self._warp(big_frame_buf, transforms['big_img'], getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
+    self._warp(big_frame_buf, transforms['big_img'], self.big_q[-1],
+               getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
     self.feat_q[:-1] = self.feat_q[1:]
     self.feat_q[-1] = self.prev_feat.reshape(1, 1, -1)
     self.desire_q[:-1] = self.desire_q[1:]
@@ -243,20 +267,23 @@ class TrtModelState:
     desire = np.where(inputs['desire_pulse'] - self.prev_desire > .99, inputs['desire_pulse'], 0)
     self.prev_desire[:] = inputs['desire_pulse']
 
-    main = self._warp(frame_buf, transforms['img'],
-                      getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
-    wide = self._warp(big_frame_buf, transforms['big_img'],
-                      getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
+    main_out = self._new_img[0]
+    wide_out = self._new_img[1]
+    self._warp(frame_buf, transforms['img'], main_out,
+               getattr(bufs['img'], 'stride', None), getattr(bufs['img'], 'uv_offset', None))
+    self._warp(big_frame_buf, transforms['big_img'], wide_out,
+               getattr(bufs['big_img'], 'stride', None), getattr(bufs['big_img'], 'uv_offset', None))
 
     d = self.model_dtypes
     trt_inputs = {
       # 与 jetlink warp 同构: 每相机 6 平面 [Y00,Y10,Y01,Y11,U,V], dim0=[主相机, 广角]
-      'new_img': np.stack([main, wide]).astype(d['new_img']),
+      'new_img': self._new_img,
       'desire': desire.reshape(-1).astype(d['desire']),
       'traffic_convention': np.asarray(inputs['traffic_convention'], dtype=d['traffic_convention']).reshape(1, 2),
       'action_t': np.asarray(inputs['action_t'], dtype=d['action_t']).reshape(1, 2),
     }
-    trt_inputs.update({k: v.astype(d[k]) for k, v in self.state.items()})
+    # 非回环状态(state_img_q): 缓存已是引擎 dtype, 零拷贝引用
+    trt_inputs.update(self.state)
     # 导航输入由 modeld 主循环注入(MapInput); 无路由/无栅格时保持 0, 与 fill_inputs 一致
     if self.views:
       self.views['nav_map'].fill(0)
@@ -275,9 +302,10 @@ class TrtModelState:
     if not np.all(np.isfinite(model_output)):
       raise RuntimeError('TRT model output is not finite')
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
-    # 循环状态回填: graph 输出的 next_state_* 就是下一步的 state_* 输入
-    for k in self.state_names:
-      np.copyto(self.state[k], result['next_' + k].reshape(self.input_shapes[k]))
+    # 循环状态回填: 回环状态由 runner 在设备侧 D2D 完成, 只有宿主缓存
+    # 状态(state_img_q, float32 输出 -> uint8 输入)需要回填
+    for k, buf in self.state.items():
+      np.copyto(buf, result['next_' + k].reshape(buf.shape).astype(buf.dtype))
     if os.environ.get('SEND_RAW_PRED'):
       outputs_dict['raw_pred'] = model_output.copy()
     return outputs_dict

@@ -15,8 +15,15 @@ import tensorrt as trt
 
 
 class TrtRunner:
-  def __init__(self, plan_path: str):
+  def __init__(self, plan_path: str, feedback_pairs: dict[str, str] | None = None,
+               d2h_outputs: list[str] | None = None):
+    """feedback_pairs: 状态回环映射 {输入名: 输出名}。每帧 execute 前把上帧
+    输出缓冲 D2D 拷回输入缓冲, 输入不再走 H2D、输出不再 D2H —— 数据本来就在
+    显存里, 每帧两趟 8.4MB 的 memcpy 是纯浪费。
+    d2h_outputs: 需要拷回宿主的输出名列表; None = 全部拷回(旧行为)。"""
     self.plan_path = plan_path
+    self.feedback_pairs = dict(feedback_pairs or {})
+    self._d2h_outputs = d2h_outputs  # IO 布局建立后再解析(None = 全部)
     logger = trt.Logger(trt.Logger.WARNING)
     runtime = trt.Runtime(logger)
     with open(plan_path, 'rb') as f:
@@ -35,6 +42,8 @@ class TrtRunner:
     self.cudart.cudaMalloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
     self.cudart.cudaFree.argtypes = [ctypes.c_void_p]
     self.cudart.cudaMemcpy.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+    self.cudart.cudaMemset.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_size_t]
+    self.cudart.cudaMemset.restype = ctypes.c_int
     self.cudart.cudaDeviceSynchronize.argtypes = []
     self.drv = ctypes.CDLL('/usr/lib/aarch64-linux-gnu/libcuda.so')
     self.drv.cuInit.restype = ctypes.c_int
@@ -77,6 +86,7 @@ class TrtRunner:
       else:
         self.output_names.append(n)
     self.bindings = [self.io[n]['dev'] for n in names]
+    self.d2h_outputs = set(self.output_names) if self._d2h_outputs is None else set(self._d2h_outputs)
     # stateful 契约(N16 等)是 1 个 outputs + 5 个 next_state_* 输出;全部拷回。
     self.out_hosts = {n: np.zeros(int(np.prod(self.io[n]['shape'])), dtype=self.io[n]['npdt'])
                       for n in self.output_names}
@@ -102,7 +112,16 @@ class TrtRunner:
   def run_np(self, inputs: dict[str, np.ndarray]) -> np.ndarray:
     self._push()
     try:
+      # 状态回环: 上帧 next_* 输出仍在显存, D2D 直接回填本帧输入缓冲。
+      for dst, src in self.feedback_pairs.items():
+        rc = self.cudart.cudaMemcpy(ctypes.c_void_p(self.io[dst]['dev']),
+                                    ctypes.c_void_p(self.io[src]['dev']),
+                                    self.io[dst]['nbytes'], 3)  # D2D
+        if rc != 0:
+          raise RuntimeError(f"cudaMemcpy D2D {dst}<-{src} rc={rc}")
       for n in self.input_names:
+        if n in self.feedback_pairs:
+          continue
         arr = inputs[n]
         if arr.dtype != self.io[n]['npdt']:
           raise TypeError(f'{n}: want {self.io[n]["npdt"]}, got {arr.dtype}')
@@ -114,6 +133,8 @@ class TrtRunner:
       if not self.ctx.execute_v2(self.bindings):
         raise RuntimeError("TRT execute_v2 returned False")
       for n in self.output_names:
+        if n not in self.d2h_outputs:
+          continue
         rc = self.cudart.cudaMemcpy(self.out_hosts[n].ctypes.data,
                                     ctypes.c_void_p(self.io[n]['dev']),
                                     self.out_hosts[n].nbytes, 2)  # D2H
@@ -121,7 +142,23 @@ class TrtRunner:
           raise RuntimeError(f"cudaMemcpy D2H {n} rc={rc}")
       if len(self.output_names) == 1:
         return self.out_hosts[self.output_names[0]].copy()
-      return {n: self.out_hosts[n].copy() for n in self.output_names}
+      # 多输出: 返回宿主缓冲视图。缓冲在下次 run_np 前保持有效, 调用方必须
+      # 在下一帧之前完成解析/回填(modeld 的单线程帧循环保证这一点)。
+      return {n: self.out_hosts[n] for n in self.output_names if n in self.d2h_outputs}
+    finally:
+      self._pop()
+
+  def zero_device_feedback(self) -> None:
+    """清零回环两端(输入+输出)的设备缓冲, 配合 reset() 使用。"""
+    if not self.feedback_pairs:
+      return
+    self._push()
+    try:
+      for dst, src in self.feedback_pairs.items():
+        for n in (dst, src):
+          rc = self.cudart.cudaMemset(ctypes.c_void_p(self.io[n]['dev']), 0, self.io[n]['nbytes'])
+          if rc != 0:
+            raise RuntimeError(f"cudaMemset {n} rc={rc}")
     finally:
       self._pop()
 
