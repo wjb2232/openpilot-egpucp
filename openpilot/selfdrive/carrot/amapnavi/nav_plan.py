@@ -14,12 +14,27 @@ import hashlib
 import json
 import math
 import os
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from openpilot.selfdrive.navd import amap_route
+
+# 部分网络环境 IPv6 出口黑洞（有全局 v6 地址但无路由），而 Web 服务域名普遍
+# 同时返回 AAAA+A；urllib 串行尝试每个地址，每个 v6 都烧满一次连接超时
+# （实测朔州台架 restapi.amap.com 2×AAAA ≈ 16s，curl 因 Happy Eyeballs 无此
+# 问题）。导入本模块的进程只出访高德/百度/Mapbox 等 Web API，全部有 IPv4，
+# 故限定 AF_INET（无 v4 结果时退回原列表），与 curl 同速。
+_original_getaddrinfo = socket.getaddrinfo
+
+def _ipv4_getaddrinfo(*args, **kwargs):
+  infos = _original_getaddrinfo(*args, **kwargs)
+  ipv4 = [info for info in infos if info[0] == socket.AF_INET]
+  return ipv4 or infos
+
+socket.getaddrinfo = _ipv4_getaddrinfo
 
 AMAP_DRIVING_URL = amap_route.AMAP_URL
 MAPBOX_DRIVING_URL = 'https://api.mapbox.com/directions/v5/mapbox/driving-traffic/'
