@@ -5,3 +5,5 @@ openpilot/selfdrive/carrot/amapnavi/nav_params.json
 openpilot/selfdrive/carrot/amapnavi/nav_params.json/
 openpilot/selfdrive/carrot/xiaoge/v_asm_config.json
 openpilot/selfdrive/carrot/xiaoge/v_asm_config.json/
+
+.pytest_cache/
