@@ -219,7 +219,13 @@ class Controls:
         curvature = get_lag_adjusted_curvature(self.CP, CS.vEgo, lat_plan.psis, lat_plan.curvatures, steer_actuator_delay + lat_smooth_seconds, lat_plan.distances)
         new_desired_curvature = smooth_value(curvature, self.desired_curvature, lat_smooth_seconds)
     else:      
+      # 修订28b: laneless —— 模型原始曲率 + 避让差分曲率(plannerd 双 MPC 解差分;
+      # 无避让时差分恒 0, 叠加为无操作, 行为与原版一致)
       new_desired_curvature = smooth_value(model_v2.action.desiredCurvature, self.desired_curvature, 0.1)
+      if len(lat_plan.curvatures) > 0 and lat_plan.mpcSolutionValid:
+        new_desired_curvature += get_lag_adjusted_curvature(self.CP, CS.vEgo, lat_plan.psis,
+                                                            lat_plan.curvatures, self.sm['liveDelay'].lateralDelay,
+                                                            lat_plan.distances)
 
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
 

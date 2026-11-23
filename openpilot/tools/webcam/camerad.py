@@ -31,10 +31,22 @@ class Camerad:
 
     self.cameras = []
     for c in CAMERAS:
-      cam_device = f"/dev/video{c.cam_id}" if platform.system() != "Darwin" else c.cam_id
+      # VIDEO_FILE_OK: cam_id 可以是 /dev/videoN、数字索引, 或媒体文件路径
+      cam_id = str(c.cam_id)
+      if os.path.isfile(cam_id):
+        cam_device = cam_id          # 视频文件直接喂 cv2.VideoCapture
+      elif os.path.isdir(cam_id):
+        cam_device = cam_id
+      elif platform.system() != "Darwin":
+        cam_device = f"/dev/video{cam_id}"
+      else:
+        cam_device = cam_id
       cam = Camera(c.msg_name, c.stream_type, cam_device)
       self.cameras.append(cam)
-      self.vipc_server.create_buffers(c.stream_type, 20, cam.W, cam.H)
+      # 带 stride/uv_offset 建缓冲: 文件模式按 VENUS(2048/2490368) 布局,
+      # 与 get_nv12_info(1928,1208) 一致, modeld 免 CPU repack 直接快路径。
+      self.vipc_server.create_buffers_with_sizes(
+        c.stream_type, 20, cam.W, cam.H, cam.frame_size, cam.stride, cam.uv_offset)
 
     self.vipc_server.start_listener()
 
@@ -52,6 +64,7 @@ class Camerad:
     self.pm.send(pub_type, dat)
 
   def camera_runner(self, cam):
+    # 20Hz: 本视频 20fps, 按真实帧率节拍回放
     rk = Ratekeeper(20, None)
     for yuv in cam.read_frames():
       self._send_yuv(yuv, cam.cur_frame_id, cam.cam_type_state, cam.stream_type)

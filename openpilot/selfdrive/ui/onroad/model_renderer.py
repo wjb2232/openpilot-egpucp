@@ -1163,11 +1163,18 @@ class ModelRenderer(Widget):
                         self._car_space_transform, self._clip_region, allow_invert)
 
   def _build_path_polygon_update_line_data_dist_carrot(self, line: np.ndarray, width_apply: float, z_off_start: float, z_off_end: float, max_dist: float, allow_invert: bool = True) -> np.ndarray:
+    # 修订23: 近端指数采样保细节; 远端固定步长保弯曲。旧版全程 1.15 指数在 100m 处
+    # 相邻采样点间隔>13m(比模型原始点距还粗), 弯道远端被折线直线化——即「轨迹跟不上
+    # 弯道弯曲」的显示侧根因。修订25: 远端步长 5->2m, 低于模型原始点距, 曲率完整保留
+    # (弯道灵敏度不足=转向不足观感的残余因素)。
     distances = []
     dist = 2.0
+    while dist < min(max_dist, 20.0):
+      distances.append(dist)
+      dist += max(1.5, dist * 0.15)
     while dist < max_dist:
       distances.append(dist)
-      dist = dist + dist * 0.15
+      dist += 2.0
     distances.append(max_dist)
     return project_path(sample_path(line, distances), width_apply, z_off_start, z_off_end,
                         self._car_space_transform, self._clip_region, allow_invert)

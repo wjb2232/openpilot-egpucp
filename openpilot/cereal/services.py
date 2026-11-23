@@ -79,7 +79,7 @@ _services: dict[str, tuple] = {
   "lateralPlan": (True, 20., 5),
   "onroadEvents": (True, 1., 1),
   "carParams": (True, 0.02, 1),
-  "roadCameraState": (True, 30., 20),
+  "roadCameraState": (True, 20., 20),
   "driverCameraState": (True, 30., 20),
   "driverEncodeIdx": (False, 20., 1),
   "driverStateV2": (True, 20., 10),

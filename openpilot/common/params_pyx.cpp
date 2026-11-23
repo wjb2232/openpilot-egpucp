@@ -7,7 +7,7 @@
         "language": "c++",
         "name": "openpilot.common.params_pyx",
         "sources": [
-            "/data/openpilot/openpilot/common/params_pyx.pyx"
+            "/data/openpilot_egpucp/openpilot/common/params_pyx.pyx"
         ]
     },
     "module_name": "openpilot.common.params_pyx"

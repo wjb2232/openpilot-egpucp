@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import time
 
 from openpilot.cereal import car
@@ -23,6 +24,45 @@ from openpilot.selfdrive.carrot.radar_motion.timing import front_radar_distance_
 
 LIVE_TRACKS_FALLBACK_TIMEOUT_S = 0.10
 MIN_LONGITUDINAL_PLAN_INTERVAL_NS = 25_000_000
+
+# 修订28: S 型横向避让接真实控制。读 avoidanced 心跳 lateral 节的 offset 命令,
+# 平滑后注入 lateral_planner 的 MPC 目标路径(path_xyz[:,1] += offset, 与 PathOffset 同机制),
+# psis/curvatures/distances/position 全链一致, 车道线模式下转向控制器真实跟随绕行。
+# 心跳 0.5s 节流: 新鲜门放宽到 2 个心跳周期; 超保持窗目标回 0, 沿 slew 限速退出。
+AVOIDANCE_HB_PATH = "/tmp/avoidanced.json"
+AVOIDANCE_LAT_FRESH_S = 1.0    # >2×心跳周期视为陈旧
+AVOIDANCE_LAT_HOLD_S = 1.5     # 陈旧后保持最后命令的窗口,过窗沿 slew 回 0
+AVOIDANCE_LAT_SLEW_MPS = 0.3   # 与 LateralAvoidance.OFFSET_RATE 一致,不放大限速
+
+
+class AvoidanceLateralOverlay:
+  """avoidanced 心跳 offsetCmd → MPC 目标路径横向平移量(车辆系,+y 向左)。
+  状态机已按 0.3m/s slew, 此处在心跳节流台阶上二次平滑; 进程死/超窗同速率回 0。"""
+
+  def __init__(self):
+    self.value = 0.0
+    self.last_cmd = 0.0
+    self.last_cmd_t = -1e9
+    self.last_call_t = 0.0
+
+  def update(self, now: float) -> float:
+    try:
+      with open(AVOIDANCE_HB_PATH) as f:
+        hb = json.load(f)
+      if time.time() - float(hb.get("t", 0.0)) <= AVOIDANCE_LAT_FRESH_S:
+        self.last_cmd = float((hb.get("lateral") or {}).get("offset", 0.0))
+        self.last_cmd_t = now
+    except (OSError, ValueError, TypeError):
+      pass
+    target = self.last_cmd if (now - self.last_cmd_t) <= AVOIDANCE_LAT_HOLD_S else 0.0
+    dt = min(0.2, max(0.0, now - self.last_call_t)) if self.last_call_t else 0.0
+    self.last_call_t = now
+    step = AVOIDANCE_LAT_SLEW_MPS * dt
+    if target > self.value:
+      self.value = min(target, self.value + step)
+    else:
+      self.value = max(target, self.value - step)
+    return self.value
 
 
 def main():
@@ -66,6 +106,7 @@ def main():
   )
   carrot = CarrotPlanner()
   avoidance_exec = AvoidanceExecutor(mono_profile=True)   # P1: 台架单目档
+  lat_avoid = AvoidanceLateralOverlay()                   # 修订28: 横向绕行 → MPC 目标注入
   model_frame = 0
   last_longitudinal_trigger_mono_ns = 0
   diagnostics = RuntimeDiagnostics('plannerd', cloudlog.event)
@@ -186,7 +227,8 @@ def main():
       lateral_start = time.monotonic()
       timings['model_age_at_lateral_ms'] = (lateral_start - sm.logMonoTime['modelV2'] * 1e-9) * 1000
       model_frame += 1
-      lateral_planner.update(sm, carrot)
+      lat_offset = lat_avoid.update(lateral_start)   # 修订28: S 型绕行平移量
+      lateral_planner.update(sm, carrot, lat_offset=lat_offset)
       lateral_planner.publish(sm, pm, carrot)
 
       ldw.update(model_frame, sm['modelV2'], sm['carState'], sm['carControl'])

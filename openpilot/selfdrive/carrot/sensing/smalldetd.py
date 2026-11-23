@@ -14,15 +14,21 @@ from openpilot.selfdrive.modeld.trt_runner import TrtRunner
 from msgq.visionipc import VisionIpcClient, VisionStreamType
 
 W, H = 640, 640
-CONF_TH = 0.45                  # 解码预筛(后续按类精筛)
-CONF_TH_BY_CLS = {0: 0.60}     # person 类抬门:家具误报实测聚 0.50-0.55(0.62 门实测全灭=纯误报),真人视角好时 >=0.60
+CONF_TH = 0.45                  # 解码预筛(后续精筛)
+# 置信度门(修订24 距离自适应, 分界 FAR_CONF_M): 近场 0.60——家具误报实测聚 0.50-0.55
+# (0.62 门实测全灭=纯误报); 远场 0.55(修订26, 原 0.50)——0.50-0.55 恰是误报高发带,
+# 远处真目标由 3 帧发布门保证纯度。残余误报由发布确认兜底。
+CONF_TH_NEAR = 0.60
+CONF_TH_FAR = 0.55
 IOU_TH = 0.45
 MAX_DET = 64
-MIN_V_BOTTOM = 570   # 底边低于此(全帧1080系)才发:地平线附近/以上距离无定义,ODD 外杂物
+D_MAX_ODD = 160.0    # 修订24: ODD 距离上限(m)。旧底边门 570/1080 等效量程 f*1.2/(570-540)≈40m, 高速远车全灭
+FAR_CONF_M = 50.0    # 修订24: 置信度/coast 两档距离分界(m)
 PERIOD_NS = 50_000_000
-# 全帧(1920x1080)几何常量: f≈1003.8px@1920(UI 1129.29@2160), 光轴中心 (960,540), CAM_H=1.2
-F_IMG = 1129.29 * 1920.0 / 2160.0
-CX_IMG, CY_IMG = 960.0, 540.0
+# 几何常量按实际帧尺寸自适应(1080 基准比例: f≈1003.8px@1920宽, 光轴中心=帧中心, CAM_H=1.2)。
+# 旧版硬编码 1920x1080; 视频回放流为 1928x1208, 硬编码会错地平线门(570<真实中心604,地平线上方
+# 杂物入 ODD)并使距离标尺偏大。
+F_IMG = 1129.29 * 1920.0 / 2160.0   # f@1920宽基准, on_frame 内按实际 fw 线性缩放
 CAM_H = 1.2
 # COCO→文档类别: 0=ped 1=child 2=cyclist 3=motorcycle/car 4=animal 5=cone 6=debris 7=unknown
 COCO_MAP = {0: 0, 1: 2, 2: 3, 3: 3, 5: 3, 7: 3, 15: 4, 16: 4}
@@ -144,6 +150,8 @@ def main(argv=None):
     ox = (nw_full - W) // 2
     canvas = np.ascontiguousarray(res[:, ox:ox + W])
     k = fh / float(H)          # 640系→全帧 等比回映系数(乘法)
+    f_img = F_IMG * fw / 1920.0          # 焦距按实际帧宽缩放
+    cx_img, cy_img = fw * 0.5, fh * 0.5  # 光轴中心=帧中心
     x = canvas.astype(np.float32).transpose(2, 0, 1)[None] / 255.0
     out = runner.run_np({in_name: x})
     dets = decode_nms(out)
@@ -152,11 +160,17 @@ def main(argv=None):
     # 640 系 box(canvas 左上角格式)→ 全帧坐标:full = (canvas + ox) × k
     full = []
     for (bx, by, bw, bh, conf, cid) in dets:
-      if conf < CONF_TH_BY_CLS.get(cid, 0.50):
-        continue
       gx = (bx + ox) * k
       gby = by * k
       gw, gh = bw * k, bh * k
+      v_b = gby + gh
+      # 距离估计先行(门序依赖距离): 贴地平线(v_b<=cy+2px)距离无定义, 置 HUGE 由 D_MAX_ODD 丢弃
+      d_est = 9999.0
+      if v_b > cy_img + 2:
+        d_est = f_img * CAM_H / (v_b - cy_img)
+      # 修订24: 距离自适应置信度门(替代修订22 全距 0.60)——近场保误报抑制, 远场保高速小目标
+      if conf < (CONF_TH_NEAR if d_est < FAR_CONF_M else CONF_TH_FAR):
+        continue
       # 杂框门:占全帧>30% 或 人形宽高比出 [0.2,0.95] 的板砖直接丢
       area_ratio = (gw * gh) / (fw * fh)
       if area_ratio > 0.30:
@@ -164,15 +178,11 @@ def main(argv=None):
       wcls = COCO_MAP[cid]
       if wcls in (0, 1, 2) and not (0.20 <= gw / max(1e-6, gh) <= 0.95):
         continue
-      v_b = gby + gh
-      if v_b < MIN_V_BOTTOM:
-        continue   # 地平线上方距离无定义,不入 ODD
-      # 距离/侧向估计(仅用于 UI 距离字与消息 x/y)
-      d_est = 200.0
-      if v_b > CY_IMG + 6:
-        d_est = F_IMG * CAM_H / (v_b - CY_IMG)
+      # 修订24: 旧底边比例门在此处(等效量程~40m, 高速远车全灭)改为 ODD 距离门
+      if d_est > D_MAX_ODD:
+        continue
       u_c = gx + gw / 2
-      y_est = (CX_IMG - u_c) * d_est / F_IMG
+      y_est = (cx_img - u_c) * d_est / f_img
       full.append(dict(bx=max(0.0, gx), by=max(0.0, gby), bw=gw, bh=gh,
                         x0=max(0.0, min(1.0, gx / fw)),
                         y0=max(0.0, min(1.0, gby / fh)),
@@ -217,9 +227,16 @@ def main(argv=None):
     for tid, t in tracks.items():
       if tid not in assigned:
         t.miss += 1
-    # 发布(≥2 帧稳定才上屏,单帧闪烁不进;0.5s coast 保持)
-    live = [t for t in tracks.values() if t.miss <= 10 and t.hits >= 2]
-    dead = [tid for tid, t in tracks.items() if t.miss > 10]
+    # 发布(≥2 帧稳定才上屏,单帧闪烁不进); 修订24: coast 按距离两档——远场(>FAR_CONF_M)
+    # 检测闪烁多, 0.5s coast 会忽隐忽现, 放宽到 1.25s
+    def _miss_lim(t):
+      return 25 if t.last["x"] > FAR_CONF_M else 10
+    def _hits_min(t):
+      # 修订26: 远场 3 帧才发布(150ms@20fps)——闪现 1-2 帧的远景误报直接不显示;
+      # 真远目标持续可见, 3 帧后直接以实框出现。近场保持 2 帧弱框渐进。
+      return 3 if t.last["x"] > FAR_CONF_M else 2
+    live = [t for t in tracks.values() if t.miss <= _miss_lim(t) and t.hits >= _hits_min(t)]
+    dead = [tid for tid, t in tracks.items() if t.miss > _miss_lim(t)]
     for tid in dead:
       tracks.pop(tid)
     live.sort(key=lambda t: -t.conf)

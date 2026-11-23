@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# 用视频作为相机输入启动 132 的 openpilot
+# 用法: ./start-video.sh /tmp/cam.mp4 [焦距]
+#
+# 三个关键开关(真机都不要设):
+#   ROAD_CAM_F=<f>    视频相机焦距(1920 宽基准)。默认 448 ≈ 130° 水平 FOV。
+#                     这个值决定两件事:
+#                       1) 模型 warp 取多大视野 —— f 太大(2637=40°)只看到画面
+#                          中心一小块, 弯道被裁掉, 模型输出的 plan 就是直线,
+#                          看起来"轨迹不随车道弯"
+#                       2) UI 投影尺度 —— f 太大时轨迹带(米制 1.81m)在画面上
+#                          被放大, 显得"轨迹比车道宽"
+#                     换视频且 FOV 明显不同就调这个参数:
+#                       广角记录仪 130° → 448
+#                       标准记录仪 119° → 558
+#                       不确定就先跑, 看 /tmp/ui_proj_probe.txt
+#   VIS_PITCH_ONLY=1  视频模式 pitch 只取视觉自校准(intrinsic_calibd), 不用
+#                     calibrationd 的姿态。原因: 视频模式无真 IMU, calibrationd
+#                     会把 pitch 漂到 -3.34°, 而画面是平装的 -> 地面线被压低 26px
+#                     ("有点飞天")。开了它 UI 的地平线回到 540(光学中心)。
+Y_SHIFT="${Y_SHIFT:-170}"     # 轨迹垂直偏移(px); 换视频需重扫
+VIS_PITCH="${VIS_PITCH:--7.24}"  # 视频模式 pitch(度), 由实测消失点反解
+#   PATH_Y_SHIFT_PX   轨迹垂直像素偏移(实测对齐地平线)。原版 video_transform 把
+#                     "沿光轴无穷远点"钉在内容中心, 调 pitch/f 都动不了收口位置;
+#                     该偏移量直接平移轨迹层。本视频实测值 170(地平线336/轨迹顶338)。
+#   PATH_FLATTEN_Z=1  把模型输出 z 压到已知路面高度(远端发散 1.32°)
+#   自校准: intrinsic_calibd 会在本视频上重新收敛 pitch_offset
+#           (视频相机平装时它会回退到 0; 不必手动设 CALIB_ZERO)
+set -e
+VIDEO="${1:?用法: $0 <视频路径> [焦距]}"
+FOCAL="${2:-448}"
+TREE=/data/openpilot_egpucp
+echo "停 supervisor(自动重启守护, 否则主树 manager 被秒拉, 台架 flock 起不来)..."
+sudo -n systemctl stop carrot-supervisor.service 2>/dev/null || true   # 必须sudo, 否则静默失败
+sleep 3
+echo "停止当前栈..."
+pids=$(pgrep -f "^python3 ./manager.py" || true)
+[ -n "$pids" ] && kill $pids || true
+sleep 10
+rem=$(ps -eo pid,cmd | grep -E "openpilot|launch_chffrplus" \
+  | grep -vE "grep|carrot_server|carrot_web_watchdog|sim\.py|start-video\.sh|stop-stack\.sh" | awk '{print $1}' || true)
+[ -n "$rem" ] && kill -9 $rem 2>/dev/null || true
+# C++ 孤儿补刀: ./camerad 等 cmdline 不含 openpilot, grep 漏杀且成孤儿后仍发布真相机流
+for n in camerad ui loggerd encoderd modeld dmonitoringmodeld; do
+  pkill -9 -x "$n" 2>/dev/null || true
+done
+sleep 2
+echo "启动视频输入模式: $VIDEO  (ROAD_CAM_F=$FOCAL)"
+cd "$TREE"
+DISPLAY=:0 XAUTHORITY=/run/user/1000/gdm/Xauthority \
+  USE_WEBCAM=1 ROAD_CAM="$VIDEO" ROAD_CAM_F="$FOCAL" PATH_FLATTEN_Z=1 \
+  VIS_PITCH_DEG="$VIS_PITCH" PATH_Y_SHIFT_PX="$Y_SHIFT" \
+  setsid nohup ./launch_openpilot.sh > /tmp/op_video.log 2>&1 < /dev/null &
+disown
+sleep 8
+echo "已启动，约 40 秒后 UI 出现"
+echo "日志: /tmp/op_video.log"
+echo "验证: tail /tmp/trend_probe.txt    (hz 应为 540 = 光学中心)"
+echo "      车道宽约 3.0m / 轨迹带约 1.8m 才合理; 差异过大就调焦距参数"

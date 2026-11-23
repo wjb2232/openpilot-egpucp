@@ -114,9 +114,8 @@ class DevTargetsOverlay:
     if not self._enabled:
       return
 
-    if now < self._hb_next_t:
-      return
-    self._hb_next_t = now + HEARTBEAT_S
+    # 修订21: 消息消费每帧执行——旧版整块被 2s 心跳节流, 检测框 2s 才刷新一次,
+    # 即「检测框更新速度很慢」的直接根因; 心跳文件写入仍保留 2s 节流。
     self._ensure_sock()
     now_ns = time.monotonic_ns()
     fresh = []
@@ -174,23 +173,25 @@ class DevTargetsOverlay:
     self._k_trunc = max(0, len(self._rows) - len(keep) - len(tents))
     self._rows = sorted(keep + tents, key=lambda r: (r.status != "CONF", r.d if r.ttc is None else min(r.ttc, 99.0)))
 
-    try:
-      with open(HEARTBEAT_PATH, "w") as f:
-        json.dump({"t": time.time(), "enabled": self._enabled, "n": len(self._rows),
-                   "src": __file__,
-                   "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
-                   "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
-                   "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
-                   "road_hits": self._road_hits, "diag": self._diag,
-                   "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
-                   "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
-                   "err_streak": self._err_streak, "last_err": self._last_err,
-                   "tl": (None if self._tl is None else {"n": self._tl.get("n"),
-                                                         "state": self._tl.get("state"),
-                                                         "conf": self._tl.get("state_conf")}),
-                   "render_exc": getattr(self, "_diag", {}) if isinstance(getattr(self, "_diag", {}), dict) else {}}, f)
-    except Exception:
-      pass
+    if now >= self._hb_next_t:                     # 诊断心跳文件仍 2s 一写
+      self._hb_next_t = now + HEARTBEAT_S
+      try:
+        with open(HEARTBEAT_PATH, "w") as f:
+          json.dump({"t": time.time(), "enabled": self._enabled, "n": len(self._rows),
+                     "src": __file__,
+                     "n_conf": sum(1 for r in self._rows if r.status == "CONF"),
+                     "n_tent": sum(1 for r in self._rows if r.status == "TENT"),
+                     "n_coast": sum(1 for r in self._rows if r.status == "COAST"),
+                     "road_hits": self._road_hits, "diag": self._diag,
+                     "k_trunc": self._k_trunc, "render_ms_max": round(self._render_ms_max, 3),
+                     "msg_age_s": None if self._last_msg_t is None else round(now - self._last_msg_t, 2),
+                     "err_streak": self._err_streak, "last_err": self._last_err,
+                     "tl": (None if self._tl is None else {"n": self._tl.get("n"),
+                                                           "state": self._tl.get("state"),
+                                                           "conf": self._tl.get("state_conf")}),
+                     "render_exc": getattr(self, "_diag", {}) if isinstance(getattr(self, "_diag", {}), dict) else {}}, f)
+      except Exception:
+        pass
 
   def render(self, rect: rl.Rectangle, model_renderer=None):   # noqa: N802
     if not self._enabled:
@@ -255,7 +256,7 @@ class DevTargetsOverlay:
 
     for r in self._rows:
       c = _cls_color(r.cls)
-      alpha = 90 if r.px < PX_GATE else (235 if r.status == "CONF" else (165 if r.status == "COAST" else 140))
+      alpha = 130 if r.px < PX_GATE else (235 if r.status == "CONF" else (165 if r.status == "COAST" else 100))   # 修订24: px门弱显 90->130, 高速远车(px<30)可见; "<px"角标保留
       col = _with_a(c, min(alpha + 20, 255))
       if r.bbox is not None:
         # v2.9: 消息 bbox(归一化图像坐标)——真实检测数据时此框贴在目标本体上
@@ -292,6 +293,8 @@ class DevTargetsOverlay:
           pts_diag.append([round(ub, 1), round(by, 1), round(r.d, 1), "bbox"])
       if r.status == "COAST":
         rl.draw_rectangle_lines_ex(rbox, 3, _with_a(c, 150))   # 断续感以细线+低亮度表达
+      elif r.status == "TENT":
+        rl.draw_rectangle_lines_ex(rbox, 3, _with_a(c, 110))   # 确认中: 细弱框, 连续≥3帧转实框(修订22)
       else:
         rl.draw_rectangle_lines_ex(rbox, 5, col)
       # 距离大字:行进可读,白字黑边压在类色之上;px 低于门加灰化角标

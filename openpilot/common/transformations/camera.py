@@ -1,3 +1,4 @@
+import os
 import itertools
 import numpy as np
 from dataclasses import dataclass
@@ -52,9 +53,15 @@ _ar_ox_config = DeviceCameraConfig(CameraConfig(1928, 1208, 2648.0), _ar_ox_fish
 _os_config = DeviceCameraConfig(CameraConfig(2688 // 2, 1520 // 2, 1522.0 * 3 / 4), _os_fisheye, _os_fisheye)
 _neo_config = DeviceCameraConfig(CameraConfig(1164, 874, 910.0), CameraConfig(816, 612, 650.0), _NoneCameraConfig())
 
-# Jetson GMSL IMX390: 1920x1080
-_imx390_fisheye = CameraConfig(1920, 1080, 567.0 * 1920 / 1928)
-_imx390_config = DeviceCameraConfig(CameraConfig(1920, 1080, 2648.0 * 1920 / 1928), _imx390_fisheye, _imx390_fisheye)
+# Jetson GMSL IMX390: 1920x1080 全链路统一。焦距按 TICI(2648 @ 1928 宽) 等比缩放到 1920 宽。
+# 焦距可用环境变量覆盖, 供视频素材测试使用(视频源与 GMSL 相机 FOV 不同)。
+# 不设环境变量时用真机原值, 行为与上游完全一致。
+#   ROAD_CAM_F : road 相机焦距(1920 宽基准), 默认 2648
+#   WIDE_CAM_F : wide 相机焦距, 默认 567
+_ROAD_F = float(os.environ.get("ROAD_CAM_F", "2648.0"))
+_WIDE_F = float(os.environ.get("WIDE_CAM_F", "567.0"))
+_imx390_fisheye = CameraConfig(1920, 1080, _WIDE_F * 1920 / 1928)
+_imx390_config = DeviceCameraConfig(CameraConfig(1920, 1080, _ROAD_F * 1920 / 1928), _imx390_fisheye, _imx390_fisheye)
 
 DEVICE_CAMERAS = {
   # A "device camera" is defined by a device type and sensor

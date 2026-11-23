@@ -421,7 +421,19 @@
             "TlDetEnabled",
             "AvoidanceEnabled",
             "AvoidanceExecEnabled",
-            "AvoidanceShadowEnabled"
+            "AvoidanceShadowEnabled",
+            "AvoidanceLateralEnabled",
+            "SignalStopEnabled"
+          ]
+        },
+        {
+          "id": "AVOID_TUNE",
+          "ko": "회피 조정",
+          "en": "Avoidance Tuning",
+          "zh": "避让调节",
+          "params": [
+            "AvoidanceLeadM",
+            "AvoidanceDeltaM"
           ]
         }
       ]
@@ -4824,6 +4836,42 @@
       "default": 0,
       "unit": 1,
       "control": "toggle",
+      "risk": "high"
+    },
+    {
+      "group": "회피",
+      "name": "AvoidanceLeadM",
+      "title": "横向避让提前量(米)",
+      "descr": "修订29 预见性避让: 横向触发距离门从 x≥L 放宽为 x≥L−提前量,比剖面距离提前开始 S 型绕行/跨线(感知准入窗 ttc3.2s 窄于剖面5s,不提前则横向恒拒)。\n0=关闭(按剖面距离触发)。需同时开启横向影子。热生效(avoidanced 每周期读取),无需重启。过大→机动完成窗不足,联合减速兜底。",
+      "egroup": "AVOIDANCE",
+      "etitle": "Lateral Lead Distance (m)",
+      "edescr": "Rev29 pre-emptive avoidance: lateral trigger gate becomes x >= L - lead, starting earlier than the profile distance (perception window ttc 3.2s is narrower than the 5s profile). 0 = off. Requires Lateral Shadow on. Hot-read.",
+      "cgroup": "避让",
+      "ctitle": "横向避让提前量(米)",
+      "cdescr": "修订29 预见性避让: 横向触发距离门从 x≥L 放宽为 x≥L−提前量,比剖面距离提前开始 S 型绕行/跨线(感知准入窗 ttc3.2s 窄于剖面5s,不提前则横向恒拒)。\n0=关闭(按剖面距离触发)。需同时开启横向影子。热生效(avoidanced 每周期读取),无需重启。过大→机动完成窗不足,联合减速兜底。",
+      "min": 0,
+      "max": 50,
+      "default": 0,
+      "unit": 5,
+      "control": "slider",
+      "risk": "high"
+    },
+    {
+      "group": "회피",
+      "name": "AvoidanceDeltaM",
+      "title": "横向避让幅度(米)",
+      "descr": "修订29 避让幅度: 经过障碍物时的横向横移距离(米),小数可输(如0.9)。\n0=自动(压线档0.75/中心档1.6 按判据);>0 覆盖默认档位。超车道半宽0.85 自动转跨线双门(线型+安全窗),不满足则联合减速兜底;跨线深度仍夹持≤0.75。热生效。",
+      "egroup": "AVOIDANCE",
+      "etitle": "Lateral Avoidance Offset (m)",
+      "edescr": "Rev29 lateral offset amplitude when passing the obstacle (decimals allowed). 0 = auto (edge 0.75 / center 1.6). Above half-lane 0.85 falls to cross-line dual gate; brake fallback if denied; cross depth still capped at 0.75. Hot-read.",
+      "cgroup": "避让",
+      "ctitle": "横向避让幅度(米)",
+      "cdescr": "修订29 避让幅度: 经过障碍物时的横向横移距离(米),小数可输(如0.9)。\n0=自动(压线档0.75/中心档1.6 按判据);>0 覆盖默认档位。超车道半宽0.85 自动转跨线双门(线型+安全窗),不满足则联合减速兜底;跨线深度仍夹持≤0.75。热生效。",
+      "min": 0,
+      "max": 1.6,
+      "default": 0,
+      "unit": 5,
+      "control": "slider",
       "risk": "high"
     }
   ]

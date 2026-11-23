@@ -47,6 +47,7 @@ class LateralPlanner:
     self.velocity_xyz = np.zeros((TRAJECTORY_SIZE, 3))
     self.v_plan = np.zeros((TRAJECTORY_SIZE,))
     self.x_sol = np.zeros((TRAJECTORY_SIZE, 4), dtype=np.float32)
+    self.x_sol_base = None   # 修订28b: 基线 MPC 解(去偏移), laneless 差分曲率用
     self.v_ego = MIN_SPEED
     self.l_lane_change_prob = 0.0
     self.r_lane_change_prob = 0.0
@@ -84,7 +85,7 @@ class LateralPlanner:
     self.x0 = x0
     self.lat_mpc.reset(x0=self.x0)
 
-  def update(self, sm, carrot):
+  def update(self, sm, carrot, lat_offset=0.0):
     global LATERAL_ACCEL_COST, LATERAL_JERK_COST, STEERING_RATE_COST
     if self.geometry.update(getattr(sm['liveParameters'], 'centerToFrontRatio', 0.0)):
       self.factor1 = self.geometry.wheelbase - self.geometry.center_to_front
@@ -165,7 +166,9 @@ class LateralPlanner:
     self.latDebugText = self.LP.debugText
     #self.lanelines_active = True if self.LP.d_prob > 0.3 and self.LP.lanefull_mode else False
 
-    self.path_xyz[:, 1] += self.pathOffset
+    # 修订28: 避让绕行与 PathOffset 同机制 —— 注入 MPC 目标路径,
+    # psis/curvatures/distances/position 全链一致, 转向控制器真实跟随(车道线模式)
+    self.path_xyz[:, 1] += self.pathOffset + lat_offset
 
     self.lat_mpc.set_weights(self.lateralPathCost, self.lateralMotionCost,
                              LATERAL_ACCEL_COST, LATERAL_JERK_COST,
@@ -181,6 +184,13 @@ class LateralPlanner:
     assert len(yaw_rate_pts) == LAT_MPC_N + 1
     lateral_factor = np.clip(self.factor1 - (self.factor2 * self.v_plan**2), 0.0, np.inf)
     p = np.column_stack([self.v_plan, lateral_factor])
+    # 修订28b: 避让活跃时双解 —— 先跑去偏移基线解, laneless 下与正式解做差分曲率,
+    # controlsd 叠加到模型原始曲率上实现真实转向; 无避让时单跑, 差分恒 0。
+    if abs(lat_offset) > 1e-3:
+      self.lat_mpc.run(self.x0, p, y_pts - lat_offset, heading_pts, yaw_rate_pts)
+      self.x_sol_base = self.lat_mpc.x_sol.copy()
+    else:
+      self.x_sol_base = None
     self.lat_mpc.run(self.x0,
                      p,
                      y_pts,
@@ -226,11 +236,22 @@ class LateralPlanner:
     lateralPlan.psis = self.lat_mpc.x_sol[0:CONTROL_N, 2].tolist()
     lateralPlan.distances = self.lat_mpc.x_sol[0:CONTROL_N, 0].tolist()
 
+    # 修订28b: curvatures 语义随模式 —— 车道线模式发全量曲率(原逻辑);
+    # laneless 发避让差分曲率(带偏移解 - 基线解), controlsd 叠加到模型原始曲率。
+    # laneless 无避让发恒 0, 避免 controlsd 叠加造成双重计算; 解异常差分置 0。
     v_div = np.maximum(self.v_plan[:CONTROL_N], 6.0)
     if len(self.v_plan) == TRAJECTORY_SIZE:
-      lateralPlan.curvatures = (self.lat_mpc.x_sol[0:CONTROL_N, 3] / v_div).tolist()
+      k_off = self.lat_mpc.x_sol[0:CONTROL_N, 3] / v_div
     else:
-      lateralPlan.curvatures = (self.lat_mpc.x_sol[0:CONTROL_N, 3] / self.v_ego).tolist()
+      k_off = self.lat_mpc.x_sol[0:CONTROL_N, 3] / self.v_ego
+    if self.lanelines_active:
+      lateralPlan.curvatures = k_off.tolist()
+    elif self.x_sol_base is not None:
+      k_base = self.x_sol_base[0:CONTROL_N, 3] / v_div
+      k_diff = k_off - k_base
+      lateralPlan.curvatures = np.where(np.isnan(k_diff), 0.0, k_diff).tolist()
+    else:
+      lateralPlan.curvatures = [0.0] * CONTROL_N
 
     v_div2 = max(self.v_ego, 6.0)
     lateralPlan.curvatureRates = [float(x.item() / v_div2) for x in self.lat_mpc.u_sol[0:CONTROL_N - 1]] + [0.0]
@@ -258,6 +279,7 @@ class LateralPlanner:
     #lateralPlan.laneWidthRight = float(self.DH.lane_width_right)
 
     lateralPlan.position.x = self.x_sol[:, 0].tolist()
+    # 修订28: 偏移已注入 MPC 目标路径, x_sol 本身含 S 型绕行过渡, 显示与控制同源
     lateralPlan.position.y = self.x_sol[:, 1].tolist()
     lateralPlan.position.z = self.path_xyz[:, 2].tolist()
     #lateralPlan.distances = self.lat_mpc.x_sol[0:CONTROL_N, 0].tolist()

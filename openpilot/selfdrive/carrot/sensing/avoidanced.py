@@ -84,13 +84,15 @@ def main(argv=None):
       genuine=True, dist_km=km, hb=True)
     # P3 影子(台架): 横向状态机,L0 压线可演练;L1 跨线因线型/gap 无源恒拒;offset 不接 EPS
     lat_on = params.get_bool("AvoidanceLateralEnabled")
+    lead_m = params.get_int("AvoidanceLeadM")   # 修订29: 横向提前量热读(m),0=按剖面距离
+    delta_m = params.get_float("AvoidanceDeltaM")  # 修订29: 避让幅度热读(m),0=按档位自动
     xy = {int(tr.trackId): (float(tr.x), float(tr.y)) for tr in trs.tracks}
     lat_targets = [{"x": xy.get(int(r["trackId"]), (999.0, 0.0))[0],
                     "y": xy.get(int(r["trackId"]), (999.0, 0.0))[1],
                     "cls": int(r["cls"]), "hEst": float(r["hEst"]),
                     "tier": int(r["tier"])} for r in out]
-    lat = lateral.update(lat_targets, vEgo, now, aeb_active=False,
-                         degraded=False) if lat_on else \
+    lat = lateral.update(lat_targets, vEgo, now, lead_m=lead_m, delta_m=delta_m,
+                         aeb_active=False, degraded=False) if lat_on else \
       {"level": 0, "phase": 0, "offsetCmd": 0.0, "aJointFloor": None,
        "reason": "disabled", "profile": None}
     # P4 影子(台架): 灯色 0.5s 节流;停止线无源 → d_stop=None(恒等安全)
@@ -135,7 +137,9 @@ def main(argv=None):
                                   "g2Pass": shadow.g2_pass()},
                       "latOn": lat_on, "sigOn": sig_on,
                       "lateral": {"level": lat["level"], "phase": lat["phase"],
-                                    "offset": lat["offsetCmd"], "reason": lat["reason"]},
+                                    "offset": lat["offsetCmd"], "reason": lat["reason"],
+                                    "leadM": lead_m, "deltaM": delta_m,
+                                    "tgt": lat_targets[:2]},  # 修订29 诊断面: 横向输入快照
                       "signal": {"state": sig["state"], "reason": sig["reason"],
                                    "tl": tl_t, "counters": sig["counters"]}}, f)
       except Exception:

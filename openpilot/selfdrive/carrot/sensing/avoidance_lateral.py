@@ -90,7 +90,10 @@ class LateralAvoidance:
   # ---- 内部门 ----
   def _slew(self, target: float, now: float) -> float:
     """offset 命令限速 ≤0.3 m/s(§7.9);AEB 首帧归零由调用方直接置 0。"""
+    # 修订29 修复: dt 必须基于"上一帧"的 last_now 计算,再刷新 last_now;
+    # (原实现在 update() 头部先行 last_now=now → dt 恒 0 → offset 永不 ramp)
     dt = max(0.0, min(0.1, now - self.last_now)) if self.last_now else 0.0
+    self.last_now = now
     step = OFFSET_RATE * dt
     if target > self.offset:
       self.offset = min(target, self.offset + step)
@@ -101,11 +104,15 @@ class LateralAvoidance:
   def update(self, targets, v_kmh: float, now: float,
              line_vis: str = "unknown", line_map: str = "unknown",
              line_conf: float = 0.0, gap_s: float | None = None,
-             aeb_active: bool = False, degraded: bool = False):
+             aeb_active: bool = False, degraded: bool = False,
+             lead_m: float = 0.0, delta_m: float = 0.0):
     """targets: [{x,y,cls,hEst,tier}...](decider 输出同源);
-    line_vis/line_map ∈ {dashed,solid,double,none,unknown};gap_s=同向邻道时距。
+    line_vis/line_map ∈ {dashed,solid,double,none,unknown};gap_s=同向邻道时距;
+    lead_m=提前量(m,修订29): 触发门 x ≥ L−lead_m,比剖面距离提前 lead_m 米开始机动
+    (感知准入窗 ttc 3.2s 远窄于剖面 T_full≈5s,不提前则横向恒拒);0=按剖面距离。
+    delta_m=避让幅度(m,修订29): 经过障碍物的横移量,>0 覆盖档位默认(压线0.75/中心1.6);
+    超车道半宽0.85 由 inlane_ok 自动转跨线双门,跨线深度仍夹持 ≤0.75。0=按档位自动。
     返回 dict(level,phase,offsetCmd,aJointFloor,reason,profile)。"""
-    self.last_now = now
     out_reason = ""
     prof = None
     a_joint = None
@@ -201,20 +208,22 @@ class LateralAvoidance:
       return self.last
 
     # ---- 新机动准入 ----
-    if edge:
-      delta, lead_gate_dir = DELTA_EDGE, "edge"
-      a_joint = -2.0 if is_child else None      # 儿童: 压线也须联合降速(§7.9)
-    else:
-      delta, lead_gate_dir = DELTA_CENTER, "center"
-      a_joint = -2.0 if is_child else None      # 中心档儿童: 联合 a_peak=2(§9.8 夹具)
+    # 避让幅度(修订29): delta_m>0 → 用户设定横移量覆盖档位默认;
+    # 超车道半宽0.85 由下方 inlane_ok 自动转跨线双门,跨线深度仍 min(delta, 0.75) 夹持。
+    delta = delta_m if delta_m > 0 else (DELTA_EDGE if edge else DELTA_CENTER)
+    lead_gate_dir = "edge" if edge else "center"
+    a_joint = -2.0 if is_child else None      # 儿童: 联合降速(§7.9)/中心档 a_peak=2(§9.8 夹具)
 
     # in-lane 可行性(§7.6)
     inlane_ok = delta <= LANE_HALF_AVAIL
     a_use = 0.0 if (not is_child and edge) else 1.5   # 成人压线纯 S;其余联合 ≥1.5
     prof = plan_profile(delta, v_kmh, a=a_use, a_peak=2.0 if is_child else None)
 
-    # lead 门: 目标距离 ≥ 剖面 L
-    lead_ok = prof["feasible"] and x >= prof["L"]
+    # lead 门: 目标距离 ≥ 剖面 L − 提前量(修订29: lead_m>0 → 比 L 提前 lead_m 米开始机动;
+    # 注意 lead 过大 → 机动完成窗不足,由联合减速/§7.9 中止兜底,数值实车标定)
+    if prof is not None:
+      prof["leadM"] = lead_m          # 诊断面: 本次判定使用的提前量
+    lead_ok = prof["feasible"] and x >= prof["L"] - lead_m
 
     if inlane_ok and lead_ok and edge:
       # L0 压线 S(成人纯 S / 儿童联合)
