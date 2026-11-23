@@ -149,6 +149,18 @@ for k in "${GATES[@]}"; do
   fi
 done
 
+# 模型选型: 仅新克隆 (参数缺失) 时默认 N16Nav, 与车机当前一致;
+# 用户在网页模型选择器选过的值不覆盖 (deploy_stack 每次启动都会执行)
+if [ ! -s "$PARAMS_D/CarrotLocalModel" ]; then
+  say "参数 CarrotLocalModel := n16-trt (原值: 无)"
+  if [ "$DRY" = 1 ]; then
+    say "DRY: printf n16-trt > $PARAMS_D/CarrotLocalModel"
+  else
+    mkdir -p "$PARAMS_D"
+    printf 'n16-trt' > "$PARAMS_D/CarrotLocalModel.tmp$$" && mv -f "$PARAMS_D/CarrotLocalModel.tmp$$" "$PARAMS_D/CarrotLocalModel"
+  fi
+fi
+
 # ---------- 4) 重建兜底 (仅当目标 plan 缺失且 trtexec 可用) ----------
 rebuild_if_missing() {  # $1=plan绝对路径 $2=onnx绝对路径
   local plan="$1" onnx="$2"
