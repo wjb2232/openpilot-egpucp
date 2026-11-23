@@ -103,6 +103,38 @@ else
   say "警告: 缺 $MODEL_DIR/big_driving_supercombo_trt.plan (clone 不完整?)"
 fi
 
+# ---------- 2.5) N16Nav plan: local_models.json 登记的绝对路径, 仓内分块重组 ----------
+# 777MB 超 GitHub 单文件限制, 仓库存 45MB 分块(45*1024*1024, file_chunker.py 切割),
+# 此处按序重组到登记路径; sha 校验防分块缺失/损坏
+N16_DIR="${N16_DIR:-/home/nvidia/.comma/media/0/models}"
+N16_PLAN="$N16_DIR/big_driving_n16_trt.plan"
+N16_SHA="$(awk '$2=="big_driving_n16_trt.plan"{print $1}' "$ASSETS/plans/plans.sha256" 2>/dev/null)"
+ensure_n16() {
+  if [ ! -f "$N16_DIR/big_driving_n16_trt_meta.json" ] && [ -f "$ASSETS/plans/big_driving_n16_trt_meta.json" ]; then
+    say "写入 $N16_DIR/big_driving_n16_trt_meta.json"
+    run mkdir -p "$N16_DIR"
+    run cp -f "$ASSETS/plans/big_driving_n16_trt_meta.json" "$N16_DIR/"
+  fi
+  if [ -f "$N16_PLAN" ]; then
+    have="$(sha256sum "$N16_PLAN" | cut -d' ' -f1)"
+    if [ "$have" = "$N16_SHA" ]; then
+      say "n16 plan 已就位, 跳过"
+      return 0
+    fi
+    say "n16 plan sha 不符 (现: ${have:-无}), 重组覆盖"
+  else
+    say "写入 $N16_PLAN (仓内分块重组)"
+  fi
+  [ "$DRY" = 1 ] && { say "DRY: 重组 $N16_PLAN"; return 0; }
+  mkdir -p "$N16_DIR"
+  cat "$ASSETS/plans/big_driving_n16_trt.plan".chunk[0-9]*of[0-9]* > "$N16_PLAN.tmp$$" \
+    && mv -f "$N16_PLAN.tmp$$" "$N16_PLAN" \
+    || { say "警告: 仓内缺 n16 分块资产"; return 1; }
+  have="$(sha256sum "$N16_PLAN" | cut -d' ' -f1)"
+  [ "$have" = "$N16_SHA" ] || say "警告: n16 plan 重组后 sha256 不符"
+}
+ensure_n16
+
 # ---------- 3) 门控参数 ----------
 for k in "${GATES[@]}"; do
   val="$(cat "$PARAMS_D/$k" 2>/dev/null || true)"
