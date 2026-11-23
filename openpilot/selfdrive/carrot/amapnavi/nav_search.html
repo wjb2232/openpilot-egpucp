@@ -39,6 +39,9 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
 #prefs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
 #prefs button{font-size:13px;padding:7px 10px;border-radius:999px}
 #prefs button.on{background:#ff9f43;color:#12202c;border-color:#ff9f43;font-weight:600}
+#mapTools{position:absolute;top:10px;right:10px;z-index:800;display:flex;flex-direction:column;gap:6px}
+#mapTools[hidden]{display:none}
+#mapTools button{font-size:13px;padding:7px 10px;background:rgba(24,33,44,.9)}
 #mapStatus{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;margin:0;padding:18px;text-align:center;color:#8fa0b3;font-size:14px}
 #mapStatus[hidden]{display:none}
 .credit{margin:8px 0 0;font-size:12px;color:#7b899a}
@@ -60,6 +63,11 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       <img id="baseMap" alt="路线预览底图" hidden>
       <canvas id="sketch" hidden></canvas>
       <div id="routeMap" hidden></div>
+      <div id="mapTools" hidden>
+        <button id="adjustRoute" type="button">调整路线</button>
+        <button id="recenter" type="button">回到车位置</button>
+        <button id="closeDrive" type="button">收起地图</button>
+      </div>
       <p id="mapStatus">路线图需要车辆行驶中、有定位并已设置目的地</p>
     </div>
     <p id="routeInfo" class="credit"></p>
@@ -142,6 +150,14 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
   var ROUTE_COLORS = {0: '#1677ff', 1: '#00b96b', 2: '#faad14'};
   var currentPref = '';      // 路线偏好（空 = 推荐）
   var prefsBox = document.getElementById('prefs');
+  var mapTools = document.getElementById('mapTools');
+  var recenterBtn = document.getElementById('recenter');
+  var driveMode = false;     // 行驶大地图：选好路线后持续显示交互地图
+  var driveLayer = null;     // 车位置标记图层
+  var driveTimer = null;
+  var followCar = true;      // 拖动地图后暂停跟随，「回到车位置」恢复
+  var carMarker = null;
+  var chosenRoute = null;
 
   function api(path, options) {
     return fetch('/nav_search/api' + path, options || {}).then(function (response) {
@@ -188,7 +204,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     }
   }
 
-  function choose(place, prefs) {
+  function choose(place, prefs, driveItem) {
     hideRouteMap();
     setStatus('正在设置目的地…');
     var payload = {
@@ -202,6 +218,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     }).then(function () {
       setStatus('目的地已设置');
       loadDestination();
+      if (driveItem) { enterDriveMap(driveItem); }
     }).catch(function (error) { setStatus(error.message); });
   }
 
@@ -247,6 +264,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
   function hideRouteMap() {
     routeMapEl.hidden = true;
     pickedLine = null;
+    stopDrivePolling();
   }
 
   // 点选路线：第一次点高亮（地图加粗 + 卡片描边），再点同一条直接开始导航。
@@ -276,6 +294,8 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
         subdomains: '1234', maxZoom: 18, minZoom: 3, attribution: '© 高德地图'
       }).addTo(routeMap);
       routeLayerGroup = L.layerGroup().addTo(routeMap);
+      driveLayer = L.layerGroup().addTo(routeMap);
+      routeMap.on('dragstart', function () { followCar = false; });
     }
     routeMap.invalidateSize();
     routeLayerGroup.clearLayers();
@@ -299,7 +319,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       line.on('click', (function (card, poly) {
         return function () {
           if (pickedLine === poly) {
-            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index});
+            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index}, card);
           } else {
             pickRoute(card, poly);
           }
@@ -342,6 +362,57 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     })(PREFS[p][0], PREFS[p][1]);
   }
 
+  // ===== 行驶大地图：选好路线后保持交互地图，支持缩放平移、跟随车辆、调整路线 =====
+  function stopDrivePolling() {
+    if (driveTimer) { clearInterval(driveTimer); driveTimer = null; }
+    driveMode = false;
+    mapTools.hidden = true;
+  }
+
+  function pollDrivePosition() {
+    // LastGPSPosition 是 WGS84，和高德瓦片一样先偏移到 GCJ02。
+    api('/position').then(function (data) {
+      var pos = data && data.position;
+      if (!pos || typeof pos.latitude !== 'number' || typeof pos.longitude !== 'number') { return; }
+      var ll = wgs84ToLeaflet(pos.longitude, pos.latitude);
+      if (!carMarker) {
+        carMarker = L.circleMarker(ll, {radius: 7, color: '#fff', weight: 2, fillColor: '#1677ff', fillOpacity: 1}).addTo(driveLayer);
+      } else {
+        carMarker.setLatLng(ll);
+      }
+      if (followCar) { routeMap.panTo(ll); }
+    }).catch(function () {});
+  }
+
+  function enterDriveMap(item) {
+    if (typeof L === 'undefined' || !item || !(item.points || []).length) { hideRouteMap(); return; }
+    chosenRoute = item;
+    driveMode = true;
+    showCandidateMap([item]);
+    if (!driveLayer) { driveLayer = L.layerGroup().addTo(routeMap); }
+    driveLayer.clearLayers();
+    carMarker = null;
+    followCar = true;
+    mapTools.hidden = false;
+    if (driveTimer) { clearInterval(driveTimer); }
+    driveTimer = setInterval(pollDrivePosition, 4000);
+    pollDrivePosition();
+  }
+
+  document.getElementById('adjustRoute').onclick = function () {
+    if (!destinationPlace) { return; }
+    loadCandidates();          // 按当前定位重新拉候选，换路线或换偏好
+  };
+
+  recenterBtn.onclick = function () {
+    followCar = true;
+    if (carMarker) { routeMap.panTo(carMarker.getLatLng()); }
+  };
+
+  document.getElementById('closeDrive').onclick = function () {
+    hideRouteMap();            // 回到车机实时小图（refreshMap 守卫自动恢复）
+  };
+
   // 高德式候选卡片：选好目的地后先拉三条候选路线（最快/最短/躲避拥堵），
   // 点选一条才下发导航；候选接口失败时回退为直接按默认路线设置目的地。
   function loadCandidates() {
@@ -374,7 +445,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
         button.onclick = (function (card) {
           return function () {
             routes.innerHTML = '';
-            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index});
+            choose(destinationPlace, {strategy: card.strategy, route_index: card.route_index}, card);
           };
         })(item);
         li.appendChild(button);
