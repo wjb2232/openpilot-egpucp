@@ -503,7 +503,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
   function loadCandidates() {
     routes.innerHTML = '';
     if (!destinationPlace) { return; }
-    setStatus('正在查询候选路线…');
+    setStatus('正在查询候选路线，跨省路线规划较慢，请稍候…');
     var url = '/candidates?destination=' + destinationPlace.latitude + ',' + destinationPlace.longitude;
     if (origin) { url += '&origin=' + origin.latitude + ',' + origin.longitude; }
     if (currentPref) { url += '&pref=' + currentPref; }

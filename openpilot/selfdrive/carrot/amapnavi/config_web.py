@@ -310,7 +310,9 @@ class ConfigWeb:
                 request = urllib.request.Request(url, data=body, method=method,
                                                  headers={'Content-Type': 'application/json'})
                 try:
-                    with urllib.request.urlopen(request, timeout=10) as response:
+                    # candidates 走高德跨省规划实测可达 17s+（urlopen 的 timeout 是
+                    # 单次 socket 读上限，不是总时长），代理必须放得比它宽。
+                    with urllib.request.urlopen(request, timeout=30) as response:
                         status, payload = response.status, response.read()
                 except urllib.error.HTTPError as error:
                     status, payload = error.code, error.read()
