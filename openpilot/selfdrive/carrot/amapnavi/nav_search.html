@@ -32,8 +32,16 @@ li .meta{display:block;margin-top:3px;font-size:13px;color:#8fa0b3}
 #map,#sketch,#baseMap,#routeMap{display:block;width:100%;height:100%}
 #baseMap{object-fit:contain;background:#10151c}
 #map[hidden],#sketch[hidden],#baseMap[hidden],#routeMap[hidden]{display:none}
-#routeMap{background:#10151c;z-index:1}
+#routeMap{background:#10151c;z-index:1;overflow:hidden}
 #routeMap .leaflet-container{background:#10151c}
+/* 「车头向上」：画布四周各放大 25%，旋转 45° 时四角也铺满瓦片；缩放/比例尺控件锚回可视区 */
+#routeMapCanvas{position:absolute;left:-25%;top:-25%;width:150%;height:150%}
+/* 旋转围绕可视区中心：applyMapRotation 每次按 Leaflet 平移量重算，原点固定在 (0,0) */
+#routeMapCanvas .leaflet-map-pane{transform-origin:0 0}
+#routeMapCanvas .leaflet-top{top:25%}
+#routeMapCanvas .leaflet-left{left:25%}
+#routeMapCanvas .leaflet-right{right:25%}
+#routeMapCanvas .leaflet-bottom{bottom:25%}
 li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
 #prefs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
@@ -62,7 +70,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       <img id="map" alt="实时路线图" hidden>
       <img id="baseMap" alt="路线预览底图" hidden>
       <canvas id="sketch" hidden></canvas>
-      <div id="routeMap" hidden></div>
+      <div id="routeMap" hidden><div id="routeMapCanvas"></div></div>
       <div id="mapTools" hidden>
         <button id="adjustRoute" type="button">调整路线</button>
         <button id="recenter" type="button">回到车位置</button>
@@ -157,7 +165,9 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
   var driveTimer = null;
   var followCar = true;      // 拖动地图后暂停跟随，「回到车位置」恢复
   var carMarker = null;
+  var driveHeading = 0;      // GPS 航向角，跟随车辆时地图转成「车头向上」
   var chosenRoute = null;
+  var driveRouteSigStr = '';   // 当前画出路线的指纹，navd 侧变化才重画
 
   function api(path, options) {
     return fetch('/nav_search/api' + path, options || {}).then(function (response) {
@@ -289,13 +299,14 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     mapStatus.hidden = true;
     routeMapEl.hidden = false;
     if (!routeMap) {
-      routeMap = L.map(routeMapEl);
+      routeMap = L.map(document.getElementById('routeMapCanvas'));
       L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
         subdomains: '1234', maxZoom: 18, minZoom: 3, attribution: '© 高德地图'
       }).addTo(routeMap);
       routeLayerGroup = L.layerGroup().addTo(routeMap);
       driveLayer = L.layerGroup().addTo(routeMap);
-      routeMap.on('dragstart', function () { followCar = false; });
+      routeMap.on('dragstart', function () { followCar = false; applyMapRotation(); });
+      routeMap.on('move zoomend', applyMapRotation);
     }
     routeMap.invalidateSize();
     routeLayerGroup.clearLayers();
@@ -330,7 +341,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       L.circleMarker(endpoints[0], {radius: 7, color: '#fff', weight: 2, fillColor: '#2ecc71', fillOpacity: 1}).addTo(routeLayerGroup);
       L.circleMarker(endpoints[1], {radius: 7, color: '#fff', weight: 2, fillColor: '#ff4d4f', fillOpacity: 1}).addTo(routeLayerGroup);
     }
-    if (bounds) { routeMap.fitBounds(bounds, {padding: [28, 28]}); }
+    if (bounds) { routeMap.fitBounds(bounds, {padding: [28, 28], animate: false}); }
   }
 
   // ===== 路线偏好（不走高速/少收费/大路优先/高速优先）=====
@@ -369,6 +380,28 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     mapTools.hidden = true;
   }
 
+  function applyMapRotation() {
+    // 「车头向上」：跟随车辆时把地图旋转到 GPS 航向；拖动/候选页自动回正。
+    // 旋转必须绕可视区中心（车标钉在中心）：Leaflet 的平移 t 把视图中心放在画布中心，
+    // 加旋转后要重算平移 t' = c - R·(c - t)，不能用固定的 transform-origin。
+    var pane = routeMap && routeMap.getPane('mapPane');
+    if (!pane) { return; }
+    var deg = (driveMode && followCar) ? -driveHeading : 0;
+    // 平移量必须读 Leaflet 内部的 _getMapPanePos()（写 transform 前同步缓存在 pane 上），
+    // 不能解析 style.transform：那里面已经是上一次合成过的 translate+rotate，再合成会复合漂移。
+    var pos = routeMap._getMapPanePos();
+    var size = routeMap.getSize();
+    var cx = size.x / 2, cy = size.y / 2;
+    var px = pos.x, py = pos.y;
+    var rad = deg * Math.PI / 180;
+    var cos = Math.cos(rad), sin = Math.sin(rad);
+    var gx = cx - px, gy = cy - py;                           // 视图中心在 pane 局部坐标
+    var rx = gx * cos - gy * sin, ry = gx * sin + gy * cos;   // 旋转后的位置
+    pane.style.transformOrigin = '0 0';
+    pane.style.transform = 'translate3d(' + (cx - rx).toFixed(1) + 'px,' + (cy - ry).toFixed(1) +
+                           'px,0) rotate(' + deg.toFixed(1) + 'deg)';
+  }
+
   function pollDrivePosition() {
     // LastGPSPosition 是 WGS84，和高德瓦片一样先偏移到 GCJ02。
     api('/position').then(function (data) {
@@ -380,13 +413,64 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
       } else {
         carMarker.setLatLng(ll);
       }
-      if (followCar) { routeMap.panTo(ll); }
+      if (typeof pos.bearing === 'number' && isFinite(pos.bearing)) {
+        var heading = ((pos.bearing % 360) + 360) % 360;
+        var delta = Math.abs(heading - driveHeading);
+        if (Math.min(delta, 360 - delta) > 4) { driveHeading = heading; }  // 死区抑制停车抖动
+      }
+      if (followCar) {
+        // 动画在车机常显浏览器里会被节流冻结，直接落位
+        routeMap.panTo(ll, {animate: false});
+        applyMapRotation();  // 中心不变时 panTo 不触发 move，手动补旋转
+      }
     }).catch(function () {});
+  }
+
+  function pollDriveRoute() {
+    // navd 正在跟随的路线（重规划/绕路后自动变化），线条跟着更新；
+    // 空路线（navd 尚未发布或已清除）保持现状，避免和刚点选的候选路线打架。
+    api('/active_route').then(function (data) {
+      var pts = data && data.points;
+      if (!pts || pts.length < 2) { return; }
+      var sig = driveRouteSig(pts);
+      if (sig === driveRouteSigStr) { return; }
+      driveRouteSigStr = sig;
+      redrawDriveLine(pts);
+    }).catch(function () {});
+  }
+
+  function driveRouteSig(points) {
+    if (!points || points.length < 2) { return ''; }
+    function part(p) { return p[0].toFixed(5) + ',' + p[1].toFixed(5); }
+    return points.length + ':' + part(points[0]) + ':' +
+           part(points[Math.floor(points.length / 2)]) + ':' + part(points[points.length - 1]);
+  }
+
+  function redrawDriveLine(points) {
+    var latlngs = [];
+    var bounds = null;
+    for (var i = 0; i < points.length; i++) {
+      var ll = wgs84ToLeaflet(points[i][0], points[i][1]);
+      latlngs.push(ll);
+      bounds = bounds ? bounds.extend(ll) : L.latLngBounds(ll, ll);
+    }
+    if (latlngs.length < 2) { return; }
+    routeLayerGroup.clearLayers();
+    pickedLine = null;
+    var color = chosenRoute ? (ROUTE_COLORS[chosenRoute.route_index] || '#1677ff') : '#1677ff';
+    var text = chosenRoute ? (chosenRoute.label + ' · ' + routeLengthText(chosenRoute.distance)) : '当前路线';
+    L.polyline(latlngs, {color: color, weight: 6, opacity: 0.9}).addTo(routeLayerGroup)
+      .bindTooltip(text, {sticky: true});
+    L.circleMarker(latlngs[latlngs.length - 1],
+                   {radius: 7, color: '#fff', weight: 2, fillColor: '#ff4d4f', fillOpacity: 1}).addTo(routeLayerGroup);
+    // 正在跟随车辆时顺势把新路线看全，用户自己拖动过就不抢视图
+    if (bounds && followCar) { routeMap.fitBounds(bounds, {padding: [28, 28], animate: false}); }
   }
 
   function enterDriveMap(item) {
     if (typeof L === 'undefined' || !item || !(item.points || []).length) { hideRouteMap(); return; }
     chosenRoute = item;
+    driveRouteSigStr = driveRouteSig(item.points || []);
     driveMode = true;
     showCandidateMap([item]);
     if (!driveLayer) { driveLayer = L.layerGroup().addTo(routeMap); }
@@ -395,7 +479,7 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
     followCar = true;
     mapTools.hidden = false;
     if (driveTimer) { clearInterval(driveTimer); }
-    driveTimer = setInterval(pollDrivePosition, 4000);
+    driveTimer = setInterval(function () { pollDrivePosition(); pollDriveRoute(); }, 4000);
     pollDrivePosition();
   }
 
@@ -406,7 +490,8 @@ li .picked,button.picked{border-color:#ffa25b !important;color:#ffd9a8}
 
   recenterBtn.onclick = function () {
     followCar = true;
-    if (carMarker) { routeMap.panTo(carMarker.getLatLng()); }
+    if (carMarker) { routeMap.panTo(carMarker.getLatLng(), {animate: false}); }
+    applyMapRotation();      // 恢复跟随即恢复「车头向上」
   };
 
   document.getElementById('closeDrive').onclick = function () {

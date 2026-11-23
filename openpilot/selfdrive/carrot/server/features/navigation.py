@@ -151,6 +151,46 @@ async def candidates(request):
   return web.json_response({'candidates': result}, headers=NO_STORE)
 
 
+# navd 正在跟随的路线：navRouteNavd 消息（WGS84），navd 初次规划/重规划/清除时都会
+# 重新发布。网页行驶大地图轮询本接口，navd 一重规划线条就跟着更新。
+NAVD_ROUTE: dict = {}
+
+
+def _init_navd_route_socket() -> None:
+  """conflate 订阅只保留最新一条；本地/单测环境没有 cereal messaging 时静默降级。"""
+  try:
+    from openpilot.cereal import messaging
+    NAVD_ROUTE['messaging'] = messaging
+    NAVD_ROUTE['sock'] = messaging.sub_sock('navRouteNavd', conflate=True)
+  except Exception:
+    pass
+
+
+def _navd_route_points(message) -> list:
+  points: list = []
+  try:
+    for coord in message.navRouteNavd.coordinates:
+      lat, lon = float(coord.latitude), float(coord.longitude)
+      if math.isfinite(lat) and math.isfinite(lon):
+        points.append([lon, lat])
+  except (AttributeError, TypeError, ValueError):
+    return []
+  # 与候选接口一致地下采样，超长路线不至于拖慢 Leaflet
+  return points[::max(1, -(-len(points) // nav_plan.PREVIEW_POINTS))]
+
+
+async def active_route(request):
+  sock = NAVD_ROUTE.get('sock')
+  if sock is not None:
+    try:
+      message = NAVD_ROUTE['messaging'].recv_one_or_none(sock)
+    except Exception:
+      message = None
+    if message is not None:
+      NAVD_ROUTE['points'] = _navd_route_points(message)
+  return web.json_response({'points': NAVD_ROUTE.get('points') or []}, headers=NO_STORE)
+
+
 async def preview(request):
   try:
     WEB_DEMAND_PATH.touch()
@@ -164,10 +204,12 @@ async def preview(request):
 
 def register(app):
   app[SEARCH_STATE] = SearchState()
+  _init_navd_route_socket()
   app.router.add_get('/navigation', page)
   app.router.add_get('/api/navigation/search', search)
   app.router.add_get('/api/navigation/destination', get_destination)
   app.router.add_post('/api/navigation/destination', set_destination)
   app.router.add_delete('/api/navigation/destination', clear_destination)
   app.router.add_get('/api/navigation/candidates', candidates)
+  app.router.add_get('/api/navigation/active_route', active_route)
   app.router.add_get('/api/navigation/map.png', preview)

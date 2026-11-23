@@ -591,13 +591,23 @@ class ConfigWeb:
                     self.send_json_response({'error': f'操作失败: {e}'}, status=500)
 
             def send_nav_position(self):
-                """页面把「我的位置」填进出发地输入框；没有定位时返回 null。"""
+                """页面把「我的位置」填进出发地输入框；没有定位时返回 null。
+                行驶大地图还用 bearing（GPS 航向角）做「车头向上」旋转。"""
+                raw = memory_params().get('LastGPSPosition')
+                try:
+                    fix = json.loads(raw) if isinstance(raw, (bytes, str)) else None
+                except ValueError:
+                    fix = None
                 position = live_position(memory_params())
-                if position is None:
+                if position is None or not isinstance(fix, dict):
                     self.send_json_response({'position': None})
                     return
                 longitude, latitude = position
-                self.send_json_response({'position': {'latitude': latitude, 'longitude': longitude}})
+                payload = {'latitude': latitude, 'longitude': longitude}
+                bearing = fix.get('bearing')
+                if isinstance(bearing, (int, float)) and math.isfinite(bearing) and 0 <= bearing < 360:
+                    payload['bearing'] = float(bearing)
+                self.send_json_response({'position': payload})
 
             def send_nav_route(self):
                 """页面侧路线预览：出发地可手填，留空则用当前定位。"""
