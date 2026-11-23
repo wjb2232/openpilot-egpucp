@@ -20,6 +20,17 @@ function disable_automatic_git_maintenance {
 
 disable_automatic_git_maintenance
 
+# 克隆即自愈: 手动启动路径 (launch_openpilot.sh / 直接跑本脚本) 也自动部署
+# TRT 栈 (deb/N16Nav 重组/yolo plan/门控参数/默认模型选型, 幂等秒级; 失败不
+# 阻塞启动)。carrot_supervisor 已跑过时以 CARROT_STACK_DEPLOYED=1 跳过,
+# 避免每次启动重复哈希 ~2GB plan; 仅 arm64 目标机执行, x86 开发机不受影响。
+if [ "${CARROT_STACK_DEPLOYED:-0}" != "1" ] && [ "$(uname -m)" = "aarch64" ] \
+   && [ -x "$DIR/scripts/usbgpu/deploy_stack.sh" ]; then
+  echo "[launch] deploy_stack: 检查/部署 TRT 栈与模型 (幂等)..."
+  bash "$DIR/scripts/usbgpu/deploy_stack.sh" \
+    || echo "[launch] deploy_stack 失败, 继续以现有栈启动" >&2
+fi
+
 function cleanup_stale_git_lfs_hooks {
   # Some deployed checkouts still contain hooks installed by git-lfs even
   # though the executable is no longer part of the device image. Those hooks
