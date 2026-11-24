@@ -35,7 +35,9 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.transformations.camera_calib import Cam, from_live_calibration
 
 SAMPLE_EVERY_N = 3
-MIN_LINES = 20
+# dashcam-file content yields ~7-10 usable segments/frame (vs ar0231's high
+# contrast paint): 20 starved the detector permanently on the bench rig
+MIN_LINES = 8
 MIN_LINE_LEN = 60
 MIN_SAMPLES = 30
 CONVERGE_STD = 60.0
@@ -68,7 +70,10 @@ def compute_vanishing_point(img_gray):
   h, w = img_gray.shape[:2]
   y_top = int(h * ROAD_ROI_TOP_FRAC)
   roi = img_gray[y_top:, :]
-  bright = (roi > LANE_BRIGHT_MIN).astype(np.uint8) * 255
+  # adaptive threshold: the fixed 165 finds no lane marks on dim scenes
+  # (ROI p95≈125 -> HoughLinesP starves); track scene brightness, floor 90
+  thr = float(np.clip(0.8 * np.percentile(roi, 85), 90.0, LANE_BRIGHT_MIN))
+  bright = (roi > thr).astype(np.uint8) * 255
   bright = cv2.GaussianBlur(bright, (5, 5), 0)
   edges = cv2.Canny(bright, 50, 150)
   lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=70,
@@ -118,7 +123,7 @@ def compute_vanishing_point(img_gray):
     if inliers > best_inliers:
       best_inliers = inliers
       best_v = (vx, vy)
-  if best_v is None or best_inliers < max(6, int(0.20 * n)):
+  if best_v is None or best_inliers < max(4, int(0.30 * n)):
     return None, n
   vx0, vy0 = best_v
   ys = [vy0]
@@ -516,6 +521,10 @@ class CamCalibd:
     self.generation = 0
     self.last_sync_emit = 0.0
     self.frame_idx = 0
+    # single-stream bypass: GMSL stacks expose no WIDE stream, so the pair
+    # gate can never sync; allow ROAD-only sampling after a 10 s grace period
+    self.wide_ever_seen = False
+    self.single_stream_after = time.monotonic() + 10.0
 
   def get_pitch(self):
     lc = self.sm['liveCalibration']
@@ -560,8 +569,9 @@ class CamCalibd:
     e.std = float(info['std'])
     e.span = float(info['span'])
     self.pm.send('cameraCalibCandidate', msg)
+    poff = float(info.get('pitch_offset', 0.0))
     cloudlog.info(f"[camcalibd][{s.label}] CANDIDATE f={info['f']:.1f} "
-                  f"pitch_off={info['pitch_offset']:+.5f} ({np.degrees(info['pitch_offset']):+.2f}deg) "
+                  f"pitch_off={poff:+.5f} ({np.degrees(poff):+.2f}deg) "
                   f"std={info['std']:.1f} samples={info['samples']} mode={info['mode']}")
 
   def emit(self, s: StreamCalib):
@@ -620,6 +630,12 @@ class CamCalibd:
         self.calib_set = from_live_calibration(self.sm['liveCalibration'], device_type=device_type, sensor=sensor)
         for s in self.streams:
           s.set_cy_from_set(self.calib_set)
+          # focal prior from the live K: the video_mode prior (446) is an order
+          # of magnitude below the real fx (~2648), which rejects every true
+          # offset at the 0.30*f gate and amplifies the vp pitch ~6x
+          entry = self.calib_set.cams.get(s.cam)
+          if entry is not None and abs(entry.fx - s.focal_prior) > 1.0:
+            s.focal_prior = float(entry.fx)
         if self.lane_fitter is None:
           self.lane_fitter = LaneGeomFitter(self.calib_set)
         else:
@@ -643,6 +659,8 @@ class CamCalibd:
           if buf is not None:
             fresh[s.cam] = buf
             self.sync.on_stream(s.cam, int(vipc.timestamp_sof))
+            if s.cam == Cam.WIDE:
+              self.wide_ever_seen = True
 
       if self.sm.updated['cameraOdometry']:
         rot = self.sm['cameraOdometry'].rot
@@ -658,8 +676,9 @@ class CamCalibd:
         continue
 
       # sampling gate (§16.4 step 6): a stream is only sampled while the pair
-      # residual tracking is synced
-      if not self.sync.synced:
+      # residual tracking is synced; single-stream stacks bypass it entirely
+      single_ok = (not self.wide_ever_seen) and now > self.single_stream_after
+      if not (self.sync.synced or single_ok):
         time.sleep(0.02)
         continue
 
