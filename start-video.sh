@@ -47,10 +47,10 @@ for n in camerad ui loggerd encoderd modeld dmonitoringmodeld; do
   pkill -9 -x "$n" 2>/dev/null || true
 done
 sleep 2
-# 换相机素材自动清标定: 视频路径变了说明机位/FOV 可能变, 旧 CalibrationParams 不再适用;
-# calibrationd 与视觉自校准会从零自动重新收敛。同素材重放不清, 保留已收敛值。
+# 换相机素材/焦距参数自动清标定: 视频路径或 ROAD_CAM_F/ROAD_WARP_F 变了说明机位/FOV 可能变,
+# 旧 CalibrationParams 不再适用; calibrationd 与视觉自校准会从零自动重新收敛。同素材同参数重放不清, 保留已收敛值。
 CAM_MARK=/data/params/last_video_cam
-FP="$VIDEO|F=${ROAD_WARP_F}"
+FP="$VIDEO|F=${ROAD_WARP_F}|CF=${FOCAL}"
 if [ "$(cat "$CAM_MARK" 2>/dev/null)" != "$FP" ]; then
   rm -f /data/params/d/CalibrationParams
   echo "素材/参数变更($(basename "$VIDEO") $(basename "$FP"|cut -d'|' -f2)), 已清除旧标定, 将自动重新收敛"

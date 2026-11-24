@@ -19,7 +19,7 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
-from openpilot.common.transformations.camera_calib import CameraCalibSet, Cam, CalibSource, build_factory_set, write_live_calibration
+from openpilot.common.transformations.camera_calib import CameraCalibSet, Cam, CalibSource, build_factory_set, from_live_calibration, write_live_calibration
 from openpilot.common.swaglog import cloudlog
 
 MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
@@ -78,6 +78,7 @@ class Calibrator:
     # Read saved calibration
     self.params = Params()
     calibration_params = self.params.get("CalibrationParams")
+    self._persisted_params = calibration_params
     rpy_init = RPY_INIT
     wide_from_device_euler = WIDE_FROM_DEVICE_EULER_INIT
     height = HEIGHT_INIT
@@ -112,6 +113,20 @@ class Calibrator:
       self.calib_seq = max(self.calib_seq, int(getattr(s, 'seq', 0) or 0))
       s.seq = self.calib_seq
     self.calib_set = s
+
+  def restore_calib_set(self, device_type: str, sensor: str) -> CameraCalibSet | None:
+    # Rebuild the full set (cams incl. AUTO intrinsics / mount layer / seq) from
+    # the persisted event so accepted camcalibd results survive a restart
+    # instead of regressing to the factory table until re-estimation.
+    if not (self.param_put and self._persisted_params):
+      return None
+    try:
+      with log.Event.from_bytes(self._persisted_params) as msg:
+        s = from_live_calibration(msg, device_type=device_type, sensor=sensor)
+        return s if s.cams else None
+    except Exception:
+      cloudlog.exception("Error restoring calib set from cached CalibrationParams")
+      return None
 
   def reset(self, rpy_init: np.ndarray = RPY_INIT,
                   valid_blocks: int = 0,
@@ -283,26 +298,33 @@ class Calibrator:
     liveCalibration.wideFromDeviceEuler = self.wide_from_device_euler.tolist()
     liveCalibration.height = self.height.tolist()
 
+    # Values actually on the wire after the not_car override; _pub_* tracking
+    # and the seq bump must compare against these, not the internal state.
+    pub_rpy = smooth_rpy
+    pub_valid_blocks = self.valid_blocks
+    pub_status = self.cal_status
     if self.not_car:
       liveCalibration.validBlocks = INPUTS_NEEDED
       liveCalibration.calStatus = log.LiveCalibrationData.Status.calibrated
       liveCalibration.calPerc = 100.
       liveCalibration.rpyCalib = [0, 0, 0]
-      liveCalibration.rpyCalibSpread = self.calib_spread.tolist()
+      pub_rpy = np.zeros(3)
+      pub_valid_blocks = INPUTS_NEEDED
+      pub_status = log.LiveCalibrationData.Status.calibrated
 
-    # Advance calibSeq when the calibration materially changes so the UI's
-    # seq-keyed caches (model_renderer / augmented_road_view) rebuild.
-    status_raw = getattr(self.cal_status, 'raw', str(self.cal_status))
-    if (status_raw != self._pub_status_raw or self.valid_blocks != self._pub_valid_blocks or
-        self._pub_rpy is None or np.abs(smooth_rpy - self._pub_rpy).max() > RPY_SEQ_EPS or
+    # Advance calibSeq when the published calibration materially changes so the
+    # UI's seq-keyed caches (model_renderer / augmented_road_view) rebuild.
+    status_raw = getattr(pub_status, 'raw', str(pub_status))
+    if (status_raw != self._pub_status_raw or pub_valid_blocks != self._pub_valid_blocks or
+        self._pub_rpy is None or np.abs(pub_rpy - self._pub_rpy).max() > RPY_SEQ_EPS or
         self._pub_height is None or abs(float(self.height[0]) - self._pub_height) > HEIGHT_SEQ_EPS):
       # other code paths bump calib_set.seq independently (trim merge /
       # camcalibd candidates); take the max so our bump never regresses it
       base = int(getattr(self.calib_set, 'seq', 0) or 0) if self.calib_set is not None else 0
       self.calib_seq = max(self.calib_seq, base) + 1
       self._pub_status_raw = status_raw
-      self._pub_valid_blocks = self.valid_blocks
-      self._pub_rpy = smooth_rpy.copy()
+      self._pub_valid_blocks = pub_valid_blocks
+      self._pub_rpy = pub_rpy.copy()
       self._pub_height = float(self.height[0])
       if self.calib_set is not None:
         # write_live_calibration stamps calibSeq from the set AFTER our
@@ -312,6 +334,12 @@ class Calibrator:
     liveCalibration.calibSeq = self.calib_seq
 
     if self.calib_set is not None:
+      # Keep the set snapshot aligned with the wire: legacy fields refresh on
+      # every publish while the write path only updates them every 10 blocks.
+      self.calib_set.body_from_calib = smooth_rpy
+      self.calib_set.height = float(self.height[0])
+      if Cam.ROAD in self.calib_set.cams:
+        self.calib_set.cams[Cam.ROAD].mount_height = float(self.height[0])
       write_live_calibration(liveCalibration, self.calib_set)
 
     return msg
@@ -392,7 +420,10 @@ def main() -> NoReturn:
     sm.update(timeout)
 
     if sm.updated['roadCameraState'] and calibrator.calib_set is None:
-      calibrator.set_calib_set(build_factory_set(HARDWARE.get_device_type(), str(sm['roadCameraState'].sensor)))
+      device_type = HARDWARE.get_device_type()
+      sensor = str(sm['roadCameraState'].sensor)
+      restored = calibrator.restore_calib_set(device_type, sensor)
+      calibrator.set_calib_set(restored if restored is not None else build_factory_set(device_type, sensor))
 
     if sm.updated['cameraOdometry']:
       calibrator.handle_v_ego(sm['carState'].vEgo)

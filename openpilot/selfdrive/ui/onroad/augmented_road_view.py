@@ -245,9 +245,16 @@ class AugmentedRoadView(CameraView):
     if calib.calStatus != CALIBRATED:
       return
 
+    # Same seq-keyed cache as ModelRenderer: from_live_calibration plus the two
+    # matrices only need rebuilding when the published calibration changes.
+    seq = calib.calibSeq
+    if getattr(self, '_calib_seq_cache', None) == seq and self.calib_set is not None:
+      return
+
     if self.calib_set is None:
       self.calib_set = DEFAULT_DEVICE_CAMERA_SET
 
+    self._calib_seq_cache = seq
     self.calib_set = from_live_calibration(calib,
                                            device_type=self.calib_set.identity.device_type,
                                            sensor=self.calib_set.identity.sensor)
