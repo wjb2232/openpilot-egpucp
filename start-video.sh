@@ -50,12 +50,13 @@ sleep 2
 # 换相机素材自动清标定: 视频路径变了说明机位/FOV 可能变, 旧 CalibrationParams 不再适用;
 # calibrationd 与视觉自校准会从零自动重新收敛。同素材重放不清, 保留已收敛值。
 CAM_MARK=/data/params/last_video_cam
-if [ "$(cat "$CAM_MARK" 2>/dev/null)" != "$VIDEO" ]; then
+FP="$VIDEO|F=${ROAD_WARP_F}"
+if [ "$(cat "$CAM_MARK" 2>/dev/null)" != "$FP" ]; then
   rm -f /data/params/d/CalibrationParams
-  echo "素材变更($(basename "$VIDEO")), 已清除旧标定, 将自动重新收敛"
+  echo "素材/参数变更($(basename "$VIDEO") $(basename "$FP"|cut -d'|' -f2)), 已清除旧标定, 将自动重新收敛"
 fi
 mkdir -p /data/params
-printf '%s' "$VIDEO" > "$CAM_MARK"
+printf '%s' "$FP" > "$CAM_MARK"
 echo "启动视频输入模式: $VIDEO  (ROAD_CAM_F=$FOCAL)"
 cd "$TREE"
 DISPLAY=:0 XAUTHORITY=/run/user/1000/gdm/Xauthority \
