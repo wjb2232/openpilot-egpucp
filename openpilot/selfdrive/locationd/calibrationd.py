@@ -43,9 +43,15 @@ HEIGHT_INIT = np.array([1.22])
 if HARDWARE.get_device_type() == 'mici':
   PITCH_LIMITS = np.array([-0.143101, 0.22235988])
 else:
-  PITCH_LIMITS = np.array([-0.09074112085129739, 0.17])
-YAW_LIMITS = np.array([-0.06912048084718224, 0.06912048084718235])
+  PITCH_LIMITS = np.array([-0.12217304763960915, 0.17])
+YAW_LIMITS = np.array([-0.12217304763960915, 0.12217304763960915])
 DEBUG = os.getenv("DEBUG") is not None
+
+# calibSeq bump thresholds: the UI caches its projection matrices by
+# liveCalibration.calibSeq, so the sequence must advance whenever the
+# published calibration materially changes (status/validBlocks/rpy/height).
+RPY_SEQ_EPS = 0.005      # ~0.29 deg
+HEIGHT_SEQ_EPS = 0.02    # meters
 
 
 def is_calibration_valid(rpy: np.ndarray) -> bool:
@@ -91,7 +97,20 @@ class Calibrator:
     self.reset(rpy_init, valid_blocks, wide_from_device_euler, height)
     self.update_status()
 
+    # seq-keyed cache invalidation state for get_msg()
+    self.calib_seq = 0
+    self._pub_status_raw = None
+    self._pub_valid_blocks = -1
+    self._pub_rpy = None
+    self._pub_height = None
+
   def set_calib_set(self, s: CameraCalibSet) -> None:
+    # write_live_calibration() stamps liveCalibration.calibSeq from s.seq, so a
+    # freshly swapped-in factory set (seq=0) would clobber the bump already
+    # published; adopt our counter into the new set to keep the stamp monotonic.
+    if s is not None:
+      self.calib_seq = max(self.calib_seq, int(getattr(s, 'seq', 0) or 0))
+      s.seq = self.calib_seq
     self.calib_set = s
 
   def reset(self, rpy_init: np.ndarray = RPY_INIT,
@@ -270,6 +289,27 @@ class Calibrator:
       liveCalibration.calPerc = 100.
       liveCalibration.rpyCalib = [0, 0, 0]
       liveCalibration.rpyCalibSpread = self.calib_spread.tolist()
+
+    # Advance calibSeq when the calibration materially changes so the UI's
+    # seq-keyed caches (model_renderer / augmented_road_view) rebuild.
+    status_raw = getattr(self.cal_status, 'raw', str(self.cal_status))
+    if (status_raw != self._pub_status_raw or self.valid_blocks != self._pub_valid_blocks or
+        self._pub_rpy is None or np.abs(smooth_rpy - self._pub_rpy).max() > RPY_SEQ_EPS or
+        self._pub_height is None or abs(float(self.height[0]) - self._pub_height) > HEIGHT_SEQ_EPS):
+      # other code paths bump calib_set.seq independently (trim merge /
+      # camcalibd candidates); take the max so our bump never regresses it
+      base = int(getattr(self.calib_set, 'seq', 0) or 0) if self.calib_set is not None else 0
+      self.calib_seq = max(self.calib_seq, base) + 1
+      self._pub_status_raw = status_raw
+      self._pub_valid_blocks = self.valid_blocks
+      self._pub_rpy = smooth_rpy.copy()
+      self._pub_height = float(self.height[0])
+      if self.calib_set is not None:
+        # write_live_calibration stamps calibSeq from the set AFTER our
+        # assignment below and would otherwise clobber it back to the old
+        # value; keep the set seq in sync so the stamp is the bumped one.
+        self.calib_set.seq = self.calib_seq
+    liveCalibration.calibSeq = self.calib_seq
 
     if self.calib_set is not None:
       write_live_calibration(liveCalibration, self.calib_set)
