@@ -51,7 +51,7 @@ static std::map<std::string, service> services = {
   { "lateralPlan", {"lateralPlan", true, 20.000000, 5, 256000}},
   { "onroadEvents", {"onroadEvents", true, 1.000000, 1, 256000}},
   { "carParams", {"carParams", true, 0.020000, 1, 256000}},
-  { "roadCameraState", {"roadCameraState", true, 30.000000, 20, 256000}},
+  { "roadCameraState", {"roadCameraState", true, 20.000000, 20, 256000}},
   { "driverCameraState", {"driverCameraState", true, 30.000000, 20, 256000}},
   { "driverEncodeIdx", {"driverEncodeIdx", false, 20.000000, 1, 256000}},
   { "driverStateV2", {"driverStateV2", true, 20.000000, 10, 256000}},
