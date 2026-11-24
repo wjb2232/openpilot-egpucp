@@ -264,6 +264,19 @@ class ModelRenderer(Widget):
         _half = self._ribbon_half_f
     except Exception:
       pass
+    # 置信度限距护栏: 边线信心不足或中心线横向偏移超出合理半幅时截断轨迹带远端,
+    # 不渲染模型几何不可信的部分(雾天低清/发卡弯崖后路段), 避免满屏飘;
+    # 高信心+横向正常的好素材不受影响(阈值 0.8 / 5.5m)。
+    try:
+      _conf = float(min(self._lane_line_probs[1], self._lane_line_probs[2]))
+      _cap = max_distance if _conf >= 0.8 else float(np.interp(_conf, [0.5, 0.8], [40.0, max_distance]))
+      _lat = np.abs(_src[:, 1])
+      _bad = np.nonzero(_lat > 5.5)[0]
+      if len(_bad):
+        _cap = min(_cap, float(_src[int(_bad[0]), 0]))
+      max_distance = float(min(max_distance, max(_cap, float(MIN_DRAW_DISTANCE))))
+    except Exception:
+      pass
     _max_idx = self._get_path_length_idx(_src[:, 0], max_distance)
     self._path.projected_points = self._map_line_to_polygon(
       _src, _half, _z_off, _max_idx, max_distance, allow_invert=False
