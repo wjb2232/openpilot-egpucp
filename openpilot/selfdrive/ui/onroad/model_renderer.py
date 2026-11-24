@@ -1,4 +1,6 @@
 import math
+import os
+_CARROT_CAM_H = float(os.environ.get("PATH_CAM_H", "1.22"))  # 视频模式: 轨迹带相机高度可调
 import colorsys
 import time
 import numpy as np
@@ -240,8 +242,31 @@ class ModelRenderer(Widget):
       max_distance = np.clip(lead_d - min(lead_d * 0.35, 10.0), 0.0, max_distance)
 
     max_idx = self._get_path_length_idx(path_x_array, max_distance)
+    # 轨迹带自收敛 v2: 中心线与半宽均取自模型识别的车道内边线(索引1/2)中点, 垂直/横向像素自洽(远端不飘), 置信度不足时回落模型路径+1.5
+    _src = self._path.raw_points
+    _z_off = self._path_offset_z
+    _half = getattr(self, '_ribbon_half_f', 1.5)
+    try:
+      _ll = self._lane_lines[1].raw_points
+      _lr = self._lane_lines[2].raw_points
+      if (_ll.shape == _lr.shape and _ll.shape[0] > 20
+          and self._lane_line_probs[1] > 0.5 and self._lane_line_probs[2] > 0.5
+          and np.isfinite(_ll[5:20]).all() and np.isfinite(_lr[5:20]).all()):
+        _src = np.column_stack([
+          _ll[:, 0],
+          0.5 * (_ll[:, 1] + _lr[:, 1]),
+          0.5 * (_ll[:, 2] + _lr[:, 2]),
+        ]).astype(np.float32)
+        _z_off = 0.0
+        _near_half = 0.5 * (abs(float(np.mean(_ll[5:20, 1]))) + abs(float(np.mean(_lr[5:20, 1]))))
+        if _near_half > 0.3:
+          self._ribbon_half_f = 0.9 * getattr(self, '_ribbon_half_f', 1.5) + 0.1 * float(np.clip(_near_half, 0.8, 1.8))
+        _half = self._ribbon_half_f
+    except Exception:
+      pass
+    _max_idx = self._get_path_length_idx(_src[:, 0], max_distance)
     self._path.projected_points = self._map_line_to_polygon(
-      self._path.raw_points, 0.9, self._path_offset_z, max_idx, max_distance, allow_invert=False
+      _src, _half, _z_off, _max_idx, max_distance, allow_invert=False
     )
 
     self._update_experimental_gradient()
@@ -754,8 +779,8 @@ class ModelRenderer(Widget):
       self._carrot_radar_dist = float(lead_one.dRel) if lead_one.radar else 0.0
       self._carrot_lead_status = True
 
-    left_pt = self._map_to_screen(max_distance, y - 1.2, z + 1.22)
-    right_pt = self._map_to_screen(max_distance, y + 1.2, z + 1.22)
+    left_pt = self._map_to_screen(max_distance, y - 1.5, z + _CARROT_CAM_H)
+    right_pt = self._map_to_screen(max_distance, y + 1.5, z + _CARROT_CAM_H)
     if left_pt is not None and right_pt is not None:
       lex, ley = left_pt
       rex, rey = right_pt
@@ -785,8 +810,8 @@ class ModelRenderer(Widget):
     tf_idx = self._get_path_length_idx(line[:, 0], self._carrot_tf_distance)
     tf_y = float(line[tf_idx, 1])
     tf_z = float(line[tf_idx, 2])
-    self._carrot_tf_left = self._map_to_screen(self._carrot_tf_distance, tf_y - 1.0, tf_z + 1.22)
-    self._carrot_tf_right = self._map_to_screen(self._carrot_tf_distance, tf_y + 1.0, tf_z + 1.22)
+    self._carrot_tf_left = self._map_to_screen(self._carrot_tf_distance, tf_y - 1.0, tf_z + _CARROT_CAM_H)
+    self._carrot_tf_right = self._map_to_screen(self._carrot_tf_distance, tf_y + 1.0, tf_z + _CARROT_CAM_H)
 
     if lead_two is not None and lead_one is not None and lead_two.radar and lead_two.dRel > lead_one.dRel + 3.0:
       lead_two_idx = self._get_path_length_idx(line[:, 0], lead_two.dRel)
