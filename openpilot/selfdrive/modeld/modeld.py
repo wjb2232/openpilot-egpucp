@@ -602,6 +602,13 @@ def main(demo=False):
       if usbgpu_present_now:
         params.put_bool_nonblocking("UsbGpuHardwareSeen", True)
       params.put_bool_nonblocking("UsbGpuCompiled", usbgpu_compiled_path() is not None or use_trt_big)
+      # UsbGpuActive/Loading 带 CLEAR_ON_IGNITION_ON：manager 在点火边沿会清掉（台架供电
+      # 抖动也会触发），而大模型槽位只在加载成功时写一次 Active=True，UI eGPU 徽章随
+      # 之熄灭。推理确实跑在该槽位时随本块一起重申；小模型兜底路径写入的 Active=False
+      # 不能被覆盖（inference_usbgpu 为 False 时不重申）。
+      if inference_usbgpu:
+        params.put_bool_nonblocking("UsbGpuActive", True)
+        params.put_bool_nonblocking("UsbGpuLoading", False)
 
     frames = receive_camera_pair(vipc_client_main, vipc_client_extra if use_extra_client else None)
     if frames is None:
