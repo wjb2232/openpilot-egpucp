@@ -925,6 +925,23 @@ class ModelRenderer(Widget):
       draw_text_ui_style(f"{self._carrot_tf_distance:.0f} m", int(self._carrot_tf_right[0]) + 10, int(self._carrot_tf_right[1]),
                          25, rl.Color(255, 255, 255, 255), align="left", y_offset=0.0)
 
+  def _band_consistent(self, inner, outer):
+    """外线渲染的带宽旁路: 相邻内外线的车体 y 间距在真实车道宽内即视为几何自洽。
+
+    实测右弯时右外线 probs 随弯深衰减 (0.54 -> 0.32 -> 0.19) 跌破 0.3 渲染门,
+    但 5..50m 窗内与内线的间距守恒极干净 (std ~0.08m) —— 模型对远端过度不自信,
+    几何本身仍在。间距符号在模型输出间不可靠, 取绝对值判车道宽。
+    """
+    li = self._lane_lines[inner].raw_points
+    lo = self._lane_lines[outer].raw_points
+    if li.shape != lo.shape or li.shape[0] < 10:
+      return False
+    band = li[:, 1] - lo[:, 1]
+    m = (li[:, 0] > 5.0) & (li[:, 0] < 50.0) & np.isfinite(band)
+    if int(m.sum()) < 5:
+      return False
+    return 1.8 <= abs(float(np.median(band[m]))) <= 4.8
+
   def _draw_lane_lines_carrot(self, sm):
     if self._carrot_show_lane_info < 1:
       return
@@ -934,6 +951,11 @@ class ModelRenderer(Widget):
     car_state = sm['carState']
     lane_line_probs = self._lane_line_probs
     lane_line_visible = lane_line_probs > 0.3
+    # 带宽旁路: 弯道侧外线 probs 失联但与相邻内线带宽自洽时, 恢复渲染,
+    # 否则右弯(右外线)与左弯(左外线)的边界会消失/闪烁
+    for i in (0, 3):
+      if not lane_line_visible[i] and self._band_consistent(1 if i == 0 else 2, i):
+        lane_line_visible[i] = True
     road_edge_stds = self._road_edge_stds
     lane_zero = self._lane_lines[0].raw_points
 
