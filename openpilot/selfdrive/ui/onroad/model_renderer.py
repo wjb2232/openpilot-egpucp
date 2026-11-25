@@ -964,6 +964,36 @@ class ModelRenderer(Widget):
     if self._carrot_show_lane_info == 1 and not np.any(lane_line_visible):
       return
 
+    # 右弯右线远端重构: fit_vis 实证右弯时右内线近端贴合但远端向弯内收缩
+    # (带宽塌缩 ~0.5m, 两帧独立触发一致), 而左内线全段贴合、带宽近端恒定
+    # (~2.5m std 0.08)。以左内线+实测带宽重构右内/右外线远端段, 15..35m
+    # 渐进混合, 近端保留模型原值; 左弯/直道不动。
+    render_raw = [ll.raw_points for ll in self._lane_lines]
+    raw1 = self._lane_lines[1].raw_points
+    raw2 = self._lane_lines[2].raw_points
+    if (lane_line_visible[1] and lane_line_visible[2] and
+        raw1.shape == raw2.shape and raw1.shape[0] >= 10):
+      xs = raw1[:, 0]
+      mid = 0.5 * (raw1[:, 1] + raw2[:, 1])
+      drift = float(np.interp(50.0, xs, mid) - np.interp(10.0, xs, mid))
+      near = (xs > 5.0) & (xs < 25.0)
+      if drift < -1.2 and int(near.sum()) >= 5:
+        band12 = float(np.median((raw2[:, 1] - raw1[:, 1])[near]))
+        raw3 = self._lane_lines[3].raw_points
+        if (2.0 <= abs(band12) <= 4.5 and raw3.shape == raw1.shape and
+            lane_line_probs[1] > 0.5):
+          band23 = float(np.median((raw3[:, 1] - raw2[:, 1])[near]))
+          if abs(band23) > 0.5:
+            w = np.clip((xs - 15.0) / 20.0, 0.0, 1.0)[:, None]
+            fix2 = raw1[:, 1:2] + band12
+            fix3 = raw1[:, 1:2] + band12 + band23
+            new2 = raw2.copy()
+            new2[:, 1:2] = (1.0 - w) * raw2[:, 1:2] + w * fix2
+            new3 = raw3.copy()
+            new3[:, 1:2] = (1.0 - w) * raw3[:, 1:2] + w * fix3
+            render_raw[2] = new2
+            render_raw[3] = new3
+
     max_distance = float(np.clip(lane_zero[-1, 0], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE))
     max_idx = self._get_path_length_idx(lane_zero[:, 0], max_distance)
     left_lane_line = car_state.leftLaneLine
@@ -991,11 +1021,11 @@ class ModelRenderer(Widget):
       is_dashed = lane_code is not None and lane_code >= 0 and lane_code % 10 == 0
       if is_dashed:
         projected_segments = project_lane_segments(
-          lane_dash_segments(lane_line.raw_points, max_distance), line_width, self._car_space_transform, self._clip_region,
+          lane_dash_segments(render_raw[i], max_distance), line_width, self._car_space_transform, self._clip_region,
         )
       else:
         pts = self._map_line_to_polygon(
-          lane_line.raw_points, line_width, 0.0, max_idx, max_distance,
+          render_raw[i], line_width, 0.0, max_idx, max_distance,
         )
         projected_segments = [pts] if pts.size != 0 else []
       lane_vertices.append(projected_segments)
