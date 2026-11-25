@@ -99,6 +99,8 @@ class ModelRenderer(Widget):
     # Initialize ModelPoints objects
     self._path = ModelPoints()
     self._lane_lines = [ModelPoints() for _ in range(4)]
+    # 渲染共享副本(逐帧由 _rebuild_right_lines 刷新): 轨迹带与细线渲染统一消费
+    self._render_lines = [ll.raw_points for ll in self._lane_lines]
     self._road_edges = [ModelPoints() for _ in range(2)]
     self._acceleration_x = np.empty((0,), dtype=np.float32)
 
@@ -182,9 +184,42 @@ class ModelRenderer(Widget):
     # self._draw_lead_indicator()
     self._draw_carrot_overlays(sm)
 
+  def _rebuild_right_lines(self):
+    """右弯右线远端重构(渲染共享副本): fit_vis 实证右弯时右内线近端贴合
+    但远端向弯内收缩(带宽塌缩), 左内线全段贴合且带宽近端恒定(~2.5m)。
+    以左内线+实测带宽渐进混合重构右内/右外线远端; 轨迹带 lane-mid 与
+    细线渲染均消费此副本, 否则右弯带子远端被收缩的右内线拖向弯内。"""
+    raws = [ll.raw_points for ll in self._lane_lines]
+    self._render_lines = raws
+    r1, r2 = raws[1], raws[2]
+    if (self._lane_line_probs[1] <= 0.3 or self._lane_line_probs[2] <= 0.3 or
+        r1.shape != r2.shape or r1.shape[0] < 10):
+      return
+    xs = r1[:, 0]
+    mid = 0.5 * (r1[:, 1] + r2[:, 1])
+    drift = float(np.interp(50.0, xs, mid) - np.interp(10.0, xs, mid))
+    near = (xs > 5.0) & (xs < 25.0)
+    if drift >= -1.2 or int(near.sum()) < 5:
+      return
+    band12 = float(np.median((r2[:, 1] - r1[:, 1])[near]))
+    if not (2.0 <= abs(band12) <= 4.5):
+      return
+    w = np.clip((xs - 15.0) / 20.0, 0.0, 1.0)[:, None]
+    new2 = r2.copy()
+    new2[:, 1:2] = (1.0 - w) * r2[:, 1:2] + w * (r1[:, 1:2] + band12)
+    self._render_lines[2] = new2
+    r3 = raws[3]
+    if r3.shape == r1.shape and self._lane_line_probs[1] > 0.5:
+      band23 = float(np.median((r3[:, 1] - r2[:, 1])[near]))
+      if abs(band23) > 0.5:
+        new3 = r3.copy()
+        new3[:, 1:2] = (1.0 - w) * r3[:, 1:2] + w * (r1[:, 1:2] + band12 + band23)
+        self._render_lines[3] = new3
+
   def _draw_carrot_overlays(self, sm) -> None:
     timing = self._render_diagnostics
     timing.start()
+    self._rebuild_right_lines()
     timing.call('path', self._draw_path_carrot, sm)
     timing.call('lanes', self._draw_lane_lines_carrot, sm)
     timing.call('blindspot', self._draw_blind_spot_carrot, sm)
@@ -248,7 +283,7 @@ class ModelRenderer(Widget):
     _half = getattr(self, '_ribbon_half_f', 1.5)
     try:
       _ll = self._lane_lines[1].raw_points
-      _lr = self._lane_lines[2].raw_points
+      _lr = self._render_lines[2]
       if (_ll.shape == _lr.shape and _ll.shape[0] > 20
           and self._lane_line_probs[1] > 0.5 and self._lane_line_probs[2] > 0.5
           and np.isfinite(_ll[5:20]).all() and np.isfinite(_lr[5:20]).all()):
@@ -964,36 +999,6 @@ class ModelRenderer(Widget):
     if self._carrot_show_lane_info == 1 and not np.any(lane_line_visible):
       return
 
-    # 右弯右线远端重构: fit_vis 实证右弯时右内线近端贴合但远端向弯内收缩
-    # (带宽塌缩 ~0.5m, 两帧独立触发一致), 而左内线全段贴合、带宽近端恒定
-    # (~2.5m std 0.08)。以左内线+实测带宽重构右内/右外线远端段, 15..35m
-    # 渐进混合, 近端保留模型原值; 左弯/直道不动。
-    render_raw = [ll.raw_points for ll in self._lane_lines]
-    raw1 = self._lane_lines[1].raw_points
-    raw2 = self._lane_lines[2].raw_points
-    if (lane_line_visible[1] and lane_line_visible[2] and
-        raw1.shape == raw2.shape and raw1.shape[0] >= 10):
-      xs = raw1[:, 0]
-      mid = 0.5 * (raw1[:, 1] + raw2[:, 1])
-      drift = float(np.interp(50.0, xs, mid) - np.interp(10.0, xs, mid))
-      near = (xs > 5.0) & (xs < 25.0)
-      if drift < -1.2 and int(near.sum()) >= 5:
-        band12 = float(np.median((raw2[:, 1] - raw1[:, 1])[near]))
-        raw3 = self._lane_lines[3].raw_points
-        if (2.0 <= abs(band12) <= 4.5 and raw3.shape == raw1.shape and
-            lane_line_probs[1] > 0.5):
-          band23 = float(np.median((raw3[:, 1] - raw2[:, 1])[near]))
-          if abs(band23) > 0.5:
-            w = np.clip((xs - 15.0) / 20.0, 0.0, 1.0)[:, None]
-            fix2 = raw1[:, 1:2] + band12
-            fix3 = raw1[:, 1:2] + band12 + band23
-            new2 = raw2.copy()
-            new2[:, 1:2] = (1.0 - w) * raw2[:, 1:2] + w * fix2
-            new3 = raw3.copy()
-            new3[:, 1:2] = (1.0 - w) * raw3[:, 1:2] + w * fix3
-            render_raw[2] = new2
-            render_raw[3] = new3
-
     max_distance = float(np.clip(lane_zero[-1, 0], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE))
     max_idx = self._get_path_length_idx(lane_zero[:, 0], max_distance)
     left_lane_line = car_state.leftLaneLine
@@ -1021,11 +1026,11 @@ class ModelRenderer(Widget):
       is_dashed = lane_code is not None and lane_code >= 0 and lane_code % 10 == 0
       if is_dashed:
         projected_segments = project_lane_segments(
-          lane_dash_segments(render_raw[i], max_distance), line_width, self._car_space_transform, self._clip_region,
+          lane_dash_segments(self._render_lines[i], max_distance), line_width, self._car_space_transform, self._clip_region,
         )
       else:
         pts = self._map_line_to_polygon(
-          render_raw[i], line_width, 0.0, max_idx, max_distance,
+          self._render_lines[i], line_width, 0.0, max_idx, max_distance,
         )
         projected_segments = [pts] if pts.size != 0 else []
       lane_vertices.append(projected_segments)
