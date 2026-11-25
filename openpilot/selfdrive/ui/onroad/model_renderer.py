@@ -101,6 +101,7 @@ class ModelRenderer(Widget):
     self._lane_lines = [ModelPoints() for _ in range(4)]
     # 渲染共享副本(逐帧由 _rebuild_right_lines 刷新): 轨迹带与细线渲染统一消费
     self._render_lines = [ll.raw_points for ll in self._lane_lines]
+    self._mid_ema = None  # 带中心时序平滑状态
     self._road_edges = [ModelPoints() for _ in range(2)]
     self._acceleration_x = np.empty((0,), dtype=np.float32)
 
@@ -220,11 +221,47 @@ class ModelRenderer(Widget):
     timing = self._render_diagnostics
     timing.start()
     self._rebuild_right_lines()
+    self._refine_far_render()
     timing.call('path', self._draw_path_carrot, sm)
     timing.call('lanes', self._draw_lane_lines_carrot, sm)
     timing.call('blindspot', self._draw_blind_spot_carrot, sm)
     timing.call('radar', self._draw_radar_info_carrot, sm)
     timing.finish()
+  def _refine_far_render(self):
+    """弯道远端渲染修正(渲染共享副本): 模型近端实证贴合、远端固有偏差。
+    1) 带中心=path 与 lane-mid 等权融合(path 受规划时序约束更稳);
+    2) 近端 5..20m 中心拟合二阶曲线, 弯道(曲率门控 0.004)渐进外推 18..35m;
+    3) 带中心按距离衰减 EMA(近端快跟手, 远端强平滑);
+    修正仅重定义右内线远端 y(y2=2*mid-y1, 1.5m 钳位), 左内线实证贴合不动。"""
+    l1 = self._lane_lines[1].raw_points
+    l2 = self._render_lines[2]
+    path_pts = self._path.raw_points
+    if (self._lane_line_probs[1] <= 0.3 or self._lane_line_probs[2] <= 0.3 or
+        l1.shape != l2.shape or l1.shape[0] < 30 or path_pts.shape[0] < 30):
+      self._mid_ema = None
+      return
+    xs = l1[:, 0]
+    py = np.interp(xs, path_pts[:, 0], path_pts[:, 1])
+    mid = 0.5 * (0.5 * (l1[:, 1] + l2[:, 1]) + py)
+    near = (xs >= 5.0) & (xs <= 20.0)
+    if int(near.sum()) >= 4:  # 33点非均匀采样, 5~20m仅5点, 2阶拟合4点即用
+      coef = np.polyfit(xs[near], mid[near], 2)
+      if abs(2.0 * coef[0]) > 0.004:
+        w = np.clip((xs - 18.0) / 17.0, 0.0, 1.0)
+        # 二次曲线外推>35m病态发散(实测dy需求8.9~64m), 冻结在35m处=恒定修正量
+        ext = np.polyval(coef, np.minimum(xs, 35.0))
+        mid = (1.0 - w) * mid + w * ext
+    if self._mid_ema is None or self._mid_ema.shape != mid.shape:
+      self._mid_ema = mid.copy()
+    else:
+      alpha = np.clip(0.6 - 0.012 * xs, 0.15, 0.6)
+      self._mid_ema = alpha * mid + (1.0 - alpha) * self._mid_ema
+    y2 = 2.0 * self._mid_ema - l1[:, 1]
+    far = xs > 18.0
+    new2 = l2.copy()
+    new2[far, 1] = l2[far, 1] + np.clip(y2[far] - l2[far, 1], -1.5, 1.5)
+    self._render_lines[2] = new2
+
 
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""
