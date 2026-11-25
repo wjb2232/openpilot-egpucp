@@ -8,6 +8,9 @@ export ROAD_WARP_PY="${ROAD_WARP_PY:-30}"
 # ROAD_VP_LOCK=1: 消失点锚定动态 warp(P1-2): 采样窗水平中心跟随弯道消失点, 远端路面保持居中;
 # VP 估计(480宽 Canny+Hough)+EMA+限幅±30px+死区全在输入侧闭环, 摊薄开销<2ms/帧。0=A/B 基线。
 export ROAD_VP_LOCK="${ROAD_VP_LOCK:-1}"
+# ROAD_CLAHE=1: 亮度门控暗场景增强(P2): warp后Y均值<55(滞回70)才启用 gamma LUT 提亮(0.70ms, CLAHE 6.8ms超预算弃用);
+# gamma 0.42~0.62 随暗度自适应, 白天零改动零开销。0=A/B 基线。
+export ROAD_CLAHE="${ROAD_CLAHE:-1}"
 # 用法: ./start-video.sh /tmp/cam.mp4 [焦距]
 #
 # 三个关键开关(真机都不要设):

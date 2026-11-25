@@ -78,6 +78,14 @@ class Camera:
       }
       print("ROAD_VP_LOCK=1: 消失点锚定动态采样窗开启")
 
+    # ROAD_CLAHE=1: 亮度门控暗场景增强(P2) —— warp 后 Y 均值采样(实测 0.06ms)低于门限(夜间/隧道)才启用。
+    # 增强路径台架实测选型: gamma LUT 全图 0.70ms; CLAHE 6.8ms 超 CPU 余量(remap 本身 6ms)弃用。
+    # gamma 随暗度自适应(0.42~0.62, 越暗提亮越强), 滞回 55/70 防闪切, 白天零改动零开销。
+    self._enh = None
+    if self.is_file and os.getenv("ROAD_CLAHE", "0") == "1":
+      self._enh = {"on": 0, "lo": 55.0, "hi": 70.0, "lut": np.arange(256, dtype=np.uint8)}
+      print("ROAD_CLAHE=1: 暗场景亮度门控 gamma 增强开启(滞回 55/70)")
+
     if self.is_file:
       self.W, self.H = TARGET_W, TARGET_H
       self.stride, self.uv_offset, self.frame_size = VENUS_STRIDE, Y_PLANE, FRAME_SIZE
@@ -135,12 +143,28 @@ class Camera:
                       self._vp["map_y"])
     self._warp_uv_map = (np.ascontiguousarray(self._warp_map[0][0::2, 0::2] * 0.5), self._vp["uv_my"])
 
+  def _enhance(self, y2):
+    """亮度门控暗场景 gamma 提亮: 滞回防闪切, gamma 随暗度自适应(越暗提亮越强), UV 色度不动。"""
+    e = self._enh
+    m = float(cv.mean(y2[::8, ::8])[0])
+    on = 1 if ((e["on"] and m < e["hi"]) or m < e["lo"]) else 0
+    if on != e["on"]:
+      e["on"] = on
+      print(f"[CLAHE] {'ON' if on else 'OFF'} mean={m:.0f}")
+    if not on:
+      return y2
+    g = float(np.clip(0.30 + m / 100.0, 0.42, 0.62))
+    e["lut"] = ((np.arange(256, dtype=np.float32) / 255.0) ** g * 255.0 + 0.5).astype(np.uint8)
+    return cv.LUT(y2, e["lut"])
+
   def _warp_nv12(self, yuv):
     """NV12 平面重映射: Y 平面 LINEAR(CUBIC 实测超该盒 CPU 预算回退: 8~17fps 且被 GPU 争抢掩盖收益), UV 平面 NEAREST(色度无需插值精度), 数据量较 BGR 省 3 倍。"""
     h3, w = yuv.shape
     y = yuv[:h3 * 2 // 3, :]
     uv = yuv[h3 * 2 // 3:, :].reshape(h3 // 3, w // 2, 2)
     y2 = cv.remap(y, self._warp_map[0], self._warp_map[1], interpolation=cv.INTER_LINEAR, borderMode=cv.BORDER_REPLICATE)
+    if self._enh is not None:                  # P2 亮度门控暗场景增强(白天零开销直通)
+      y2 = self._enhance(y2)
     uv2 = cv.remap(uv, self._warp_uv_map[0], self._warp_uv_map[1], interpolation=cv.INTER_NEAREST, borderMode=cv.BORDER_REPLICATE)
     return np.vstack([y2, uv2.reshape(uv2.shape[0], -1)])
 
