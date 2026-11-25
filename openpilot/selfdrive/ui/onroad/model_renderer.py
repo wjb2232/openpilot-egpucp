@@ -222,6 +222,7 @@ class ModelRenderer(Widget):
     timing.start()
     self._rebuild_right_lines()
     self._refine_far_render()
+    self._topo_anchor_far()
     timing.call('path', self._draw_path_carrot, sm)
     timing.call('lanes', self._draw_lane_lines_carrot, sm)
     timing.call('blindspot', self._draw_blind_spot_carrot, sm)
@@ -262,6 +263,36 @@ class ModelRenderer(Widget):
     new2[far, 1] = l2[far, 1] + np.clip(y2[far] - l2[far, 1], -1.5, 1.5)
     self._render_lines[2] = new2
 
+
+  def _topo_anchor_far(self):
+    """方案5 拓扑校正: 右外线远端实证贴弯道走向(护栏/路缘强特征), 右内线
+    20~40m 残余偏内0.5~1m(弯心在35m外, 超出近端外推窗口)。以右外线减去
+    近端实测带宽反推右内线远端, 右弯(drift<-1.0)25~35m渐进接管, 相对原始
+    值总量钳位±1.5m(含refine累计); 左弯/分岔不干预。"""
+    r3 = self._render_lines[3]
+    l2 = self._render_lines[2]
+    raw2 = self._lane_lines[2].raw_points
+    if (self._lane_line_probs[3] <= 0.5 or r3.shape != l2.shape or
+        r3.shape[0] < 30 or raw2.shape != l2.shape):
+      return
+    xs = l2[:, 0]
+    near = (xs >= 5.0) & (xs <= 20.0)
+    if int(near.sum()) < 4:
+      return
+    band23 = float(np.median((r3[:, 1] - l2[:, 1])[near]))
+    if not (1.5 <= abs(band23) <= 4.5):
+      return
+    mid23 = 0.5 * (l2[:, 1] + r3[:, 1])
+    drift = float(np.interp(50.0, xs, mid23) - np.interp(10.0, xs, mid23))
+    if drift >= -1.0:
+      return
+    w = np.clip((xs - 25.0) / 10.0, 0.0, 1.0)
+    y_topo = r3[:, 1] - band23
+    blended = (1.0 - w) * l2[:, 1] + w * y_topo
+    delta = np.clip(blended - raw2[:, 1], -1.5, 1.5)  # 相对原始总量钳位
+    new2 = l2.copy()
+    new2[:, 1] = raw2[:, 1] + delta
+    self._render_lines[2] = new2
 
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""
