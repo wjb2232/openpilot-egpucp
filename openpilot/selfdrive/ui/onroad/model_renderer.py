@@ -223,6 +223,7 @@ class ModelRenderer(Widget):
     self._rebuild_right_lines()
     self._refine_far_render()
     self._topo_anchor_far()
+    self._symmetrize_lanes()
     timing.call('path', self._draw_path_carrot, sm)
     timing.call('lanes', self._draw_lane_lines_carrot, sm)
     timing.call('blindspot', self._draw_blind_spot_carrot, sm)
@@ -292,6 +293,44 @@ class ModelRenderer(Widget):
     delta = np.clip(blended - raw2[:, 1], -1.5, 1.5)  # 相对原始总量钳位
     new2 = l2.copy()
     new2[:, 1] = raw2[:, 1] + delta
+    self._render_lines[2] = new2
+
+  def _symmetrize_lanes(self):
+    """车道白线贴合整形(渲染共享副本, 最终步): UI 目视定量实证左右内线
+    各有形态误差(左线近端内收10~20px/远端外偏10~15px 的翻转、右线全程
+    内收5~15px), 且渲染带宽比真实车道窄~5%(模型带宽~2.5m 恒定)。
+    以带中心为锚、带宽按距离调制(k_near=1.07渐收至k_far=1.05, 1.10
+    实测右弯近端外张10~18px过冲)对称
+    重构左右内线: 近端内收最重多扩、远端目视最准少扩。中心优先用
+    refine 已收敛的 EMA(含 path 融合/曲率外推), k=1 时数学上退化为
+    既有值, 不顶掉 refine/topo 的修正; 相对原始值总量钳位±1.5m。"""
+    l1 = self._render_lines[1]
+    l2 = self._render_lines[2]
+    if (self._lane_line_probs[1] <= 0.3 or self._lane_line_probs[2] <= 0.3 or
+        l1.shape != l2.shape or l1.shape[0] < 10):
+      return
+    xs = l1[:, 0]
+    if self._mid_ema is not None and self._mid_ema.shape == (l1.shape[0],):
+      mid = self._mid_ema
+    else:
+      mid = 0.5 * (l1[:, 1] + l2[:, 1])
+    band = l2[:, 1] - l1[:, 1]
+    if not np.all(np.abs(band) > 0.5):
+      return
+    # 1.07: 直道f0贴合但右弯f4近端外张10~18px, 1.10过冲; 远端1.05两帧皆贴合
+    k = 1.07 - 0.02 * np.clip((xs - 20.0) / 15.0, 0.0, 1.0)
+    half = band * k * 0.5
+    raw1 = self._lane_lines[1].raw_points
+    raw2 = self._lane_lines[2].raw_points
+    if raw1.shape != l1.shape or raw2.shape != l2.shape:
+      return
+    d1 = np.clip((mid - half) - raw1[:, 1], -1.5, 1.5)
+    d2 = np.clip((mid + half) - raw2[:, 1], -1.5, 1.5)
+    new1 = l1.copy()
+    new2 = l2.copy()
+    new1[:, 1] = raw1[:, 1] + d1
+    new2[:, 1] = raw2[:, 1] + d2
+    self._render_lines[1] = new1
     self._render_lines[2] = new2
 
   def _update_raw_points(self, model):
