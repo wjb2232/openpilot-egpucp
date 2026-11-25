@@ -2,6 +2,9 @@
 # 用视频作为相机输入启动 132 的 openpilot
 # 素材自标定: 视频源焦距假设(1928宽基准), 源中心40°窗放大到训练视角; 0=关闭
 export ROAD_WARP_F="${ROAD_WARP_F:-1100}"
+# ROAD_WARP_PY = warp 采样窗垂直偏移(px): pysweep 扫参选定 +30(score 1.822, 与+60 差0.042<0.1 并列取小|PY|;
+# -60 异常档(带宽3.37m/ok0.85)被 conf 0.80 保底门拦下)。0=画面几何中心。
+export ROAD_WARP_PY="${ROAD_WARP_PY:-30}"
 # 用法: ./start-video.sh /tmp/cam.mp4 [焦距]
 #
 # 三个关键开关(真机都不要设):

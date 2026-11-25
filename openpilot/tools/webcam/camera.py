@@ -43,19 +43,25 @@ class Camera:
       wf = float(os.getenv("ROAD_WARP_F", "0") or 0)
     except ValueError:
       wf = 0.0
+    # ROAD_WARP_PY = 采样窗垂直偏移(px, 源图Y坐标): 正值采样窗下移→画面内容上移→水平线上移,
+    # 用于对齐训练分布的水平线位置(记录仪支架与训练相机安装差异)。
+    try:
+      wp = float(os.getenv("ROAD_WARP_PY", "0") or 0)
+    except ValueError:
+      wp = 0.0
     if self.is_file and wf > 0:
       ft = 2648.0
       scale = wf / ft
       sw = int(self.cap.get(cv.CAP_PROP_FRAME_WIDTH)) or 1920
       sh = int(self.cap.get(cv.CAP_PROP_FRAME_HEIGHT)) or 1080
       mx = ((np.arange(TARGET_W, dtype=np.float32) - TARGET_W / 2) * scale * (sw / TARGET_W) + sw / 2)
-      my = ((np.arange(TARGET_H, dtype=np.float32) - TARGET_H / 2) * scale * (sh / TARGET_H) + sh / 2)
+      my = ((np.arange(TARGET_H, dtype=np.float32) - TARGET_H / 2) * scale * (sh / TARGET_H) + sh / 2 + wp)
       self._warp_map = (np.ascontiguousarray(np.broadcast_to(mx.reshape(1, TARGET_W), (TARGET_H, TARGET_W))),
                         np.ascontiguousarray(np.broadcast_to(my.reshape(TARGET_H, 1), (TARGET_H, TARGET_W))))
       self._warp_uv_map = (np.ascontiguousarray(self._warp_map[0][0::2, 0::2] * 0.5),
                            np.ascontiguousarray(self._warp_map[1][0::2, 0::2] * 0.5))
       fov = 2 * np.degrees(np.arctan(TARGET_W / 2 / wf))
-      print(f"ROAD_WARP_F={wf}: 源中心 {fov:.1f}° 视场放大到 40° 训练视角")
+      print(f"ROAD_WARP_F={wf} PY={wp:+.0f}px: 源中心 {fov:.1f}° 视场放大到 40° 训练视角")
 
     if self.is_file:
       self.W, self.H = TARGET_W, TARGET_H
@@ -80,7 +86,7 @@ class Camera:
     return frame.reformat(format='nv12').to_ndarray()
 
   def _warp_nv12(self, yuv):
-    """NV12 平面重映射: Y 平面 LINEAR, UV 平面 NEAREST(色度无需插值精度), 数据量较 BGR 省 3 倍。"""
+    """NV12 平面重映射: Y 平面 LINEAR(CUBIC 实测超该盒 CPU 预算回退: 8~17fps 且被 GPU 争抢掩盖收益), UV 平面 NEAREST(色度无需插值精度), 数据量较 BGR 省 3 倍。"""
     h3, w = yuv.shape
     y = yuv[:h3 * 2 // 3, :]
     uv = yuv[h3 * 2 // 3:, :].reshape(h3 // 3, w // 2, 2)
