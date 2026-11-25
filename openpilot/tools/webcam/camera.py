@@ -63,6 +63,21 @@ class Camera:
       fov = 2 * np.degrees(np.arctan(TARGET_W / 2 / wf))
       print(f"ROAD_WARP_F={wf} PY={wp:+.0f}px: 源中心 {fov:.1f}° 视场放大到 40° 训练视角")
 
+    # ROAD_VP_LOCK=1: 消失点锚定动态 warp —— 低频估计道路消失点(VP)横向位置,
+    # 采样窗水平中心跟随 VP, 弯道远端路面保持居中, 提升模型远端车道信息完整性。
+    # VP 估计+EMA 平滑+限幅+死区全部在输入侧闭环, 无跨进程依赖。
+    self._vp = None
+    if self._warp_map is not None and os.getenv("ROAD_VP_LOCK", "0") == "1":
+      self._vp = {
+        "mx1d": self._warp_map[0][0].copy(),     # (TARGET_W,) 基础水平采样行
+        "map_y": self._warp_map[1].copy(),       # (H,W) 垂直 map 常驻复用(重建免拷)
+        "uv_my": self._warp_uv_map[1].copy(),    # UV 垂直 map 常驻复用
+        "rng": 0.12 * sw,                        # 满偏移 = ±12% 源宽(窗界 ±29% 内安全)
+        "dx": 0.0, "ema": 0.0, "miss": 0, "fc": 0,
+        "clahe": cv.createCLAHE(2.0, (2, 2)),
+      }
+      print("ROAD_VP_LOCK=1: 消失点锚定动态采样窗开启")
+
     if self.is_file:
       self.W, self.H = TARGET_W, TARGET_H
       self.stride, self.uv_offset, self.frame_size = VENUS_STRIDE, Y_PLANE, FRAME_SIZE
@@ -84,6 +99,41 @@ class Camera:
   def bgr2nv12(self, bgr):
     frame = av.VideoFrame.from_ndarray(bgr, format='bgr24')
     return frame.reformat(format='nv12').to_ndarray()
+
+  def _vp_estimate(self, bgr):
+    """480 宽缩小灰度上 Hough 拟合左右车道线求消失点, 返回归一化横向偏移 nx∈[-1,1], None=本帧无效。"""
+    vw = 480
+    vh = int(bgr.shape[0] * vw / bgr.shape[1])
+    g = self._vp["clahe"].apply(cv.cvtColor(cv.resize(bgr, (vw, vh), interpolation=cv.INTER_AREA), cv.COLOR_BGR2GRAY))
+    segs = cv.HoughLinesP(cv.Canny(g, 40, 120), 1, np.pi / 180, 50,
+                          minLineLength=int(vw * 0.18), maxLineGap=10)
+    if segs is None:
+      return None
+    yb0, yb1 = int(vh * 0.45), int(vh * 0.92)   # 路面车道线纵带(地平线以下)
+    lns = []                                     # (b, a, xm): x = a + b*y
+    for x1, y1, x2, y2 in segs[:, 0]:
+      if not (yb0 <= min(y1, y2) and max(y1, y2) <= yb1) or abs(y2 - y1) < 8:
+        continue                                 # 出带/近水平(路面横纹)段剔除
+      b = (x2 - x1) / (y2 - y1)
+      if 0.15 < abs(b) < 3.0:                    # 透视车道线斜率窗
+        lns.append((b, x1 - b * y1, 0.5 * (x1 + x2)))
+    left = [(b, a) for b, a, xm in lns if xm < vw / 2]
+    right = [(b, a) for b, a, xm in lns if xm >= vw / 2]
+    if not left or not right:                    # 单侧检出: 无交点证据
+      return None
+    bl, al = np.median([b for b, _ in left]), np.median([a for _, a in left])
+    br, ar = np.median([b for b, _ in right]), np.median([a for _, a in right])
+    yv = (ar - al) / (bl - br) if abs(bl - br) > 1e-3 else 0.45 * vh
+    yv = float(np.clip(yv, -0.6 * vh, 0.55 * vh))   # VP 越界(近平行)退化为该行左右线中点
+    xv = float(np.clip(0.5 * (al + bl * yv + ar + br * yv), 0.15 * vw, 0.85 * vw))
+    return (xv / vw - 0.5) * 2.0
+
+  def _vp_rebuild(self):
+    """水平平移 dx 重建采样 LUT: 垂直 map 常驻复用, 只重算 mx(Y 全图) 与 mx/2(UV)。"""
+    mx1d = self._vp["mx1d"] + self._vp["dx"]
+    self._warp_map = (np.ascontiguousarray(np.broadcast_to(mx1d.reshape(1, TARGET_W), (TARGET_H, TARGET_W))),
+                      self._vp["map_y"])
+    self._warp_uv_map = (np.ascontiguousarray(self._warp_map[0][0::2, 0::2] * 0.5), self._vp["uv_my"])
 
   def _warp_nv12(self, yuv):
     """NV12 平面重映射: Y 平面 LINEAR(CUBIC 实测超该盒 CPU 预算回退: 8~17fps 且被 GPU 争抢掩盖收益), UV 平面 NEAREST(色度无需插值精度), 数据量较 BGR 省 3 倍。"""
@@ -119,6 +169,24 @@ class Camera:
       if self.is_file:
         # 视频不翻转(行车记录仪本就正向), 缩放到真机标定尺寸
         if self._warp_map is not None:
+          if self._vp is not None:
+            self._vp["fc"] += 1
+            if self._vp["fc"] % 8 == 0:      # 低频评估: 弯道横移是秒级缓变
+              nx = self._vp_estimate(frame)
+              if nx is None:
+                self._vp["miss"] += 1
+                if self._vp["miss"] > 25:    # ~10s 无检测: 缓慢回中(直道无证据)
+                  self._vp["ema"] *= 0.95
+                  self._vp["miss"] = 20
+              else:
+                self._vp["miss"] = 0
+                self._vp["ema"] += 0.25 * (float(np.clip(nx, -1.0, 1.0)) * self._vp["rng"] - self._vp["ema"])
+              step = float(np.clip(self._vp["ema"] - self._vp["dx"], -30.0, 30.0))  # 限幅: ~3s 收敛一次弯道
+              if abs(self._vp["ema"] - self._vp["dx"]) > 1.5:   # 死区: 直道零重建
+                self._vp["dx"] += step
+                self._vp_rebuild()
+              if self._vp["fc"] % 800 == 0:
+                print(f"[VP] fc={self._vp['fc']} nx={nx} ema={self._vp['ema']:.0f}px dx={self._vp['dx']:.0f}px")
           frame = self._warp_nv12(Camera.bgr2nv12(frame))
         elif frame.shape[1] != TARGET_W or frame.shape[0] != TARGET_H:
           frame = Camera.bgr2nv12(cv.resize(frame, (TARGET_W, TARGET_H), interpolation=cv.INTER_LINEAR))

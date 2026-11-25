@@ -5,6 +5,9 @@ export ROAD_WARP_F="${ROAD_WARP_F:-1100}"
 # ROAD_WARP_PY = warp 采样窗垂直偏移(px): pysweep 扫参选定 +30(score 1.822, 与+60 差0.042<0.1 并列取小|PY|;
 # -60 异常档(带宽3.37m/ok0.85)被 conf 0.80 保底门拦下)。0=画面几何中心。
 export ROAD_WARP_PY="${ROAD_WARP_PY:-30}"
+# ROAD_VP_LOCK=1: 消失点锚定动态 warp(P1-2): 采样窗水平中心跟随弯道消失点, 远端路面保持居中;
+# VP 估计(480宽 Canny+Hough)+EMA+限幅±30px+死区全在输入侧闭环, 摊薄开销<2ms/帧。0=A/B 基线。
+export ROAD_VP_LOCK="${ROAD_VP_LOCK:-1}"
 # 用法: ./start-video.sh /tmp/cam.mp4 [焦距]
 #
 # 三个关键开关(真机都不要设):
