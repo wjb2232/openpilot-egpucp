@@ -12,8 +12,8 @@ export ROAD_VP_LOCK="${ROAD_VP_LOCK:-1}"
 # gamma 0.42~0.62 随暗度自适应, 白天零改动零开销。0=A/B 基线。
 export ROAD_CLAHE="${ROAD_CLAHE:-1}"
 # ROAD_LANE_RAW=1: UI 车道白线直出模型原始几何, 跳过渲染侧四道整形(右线远端重构/远端外推+EMA/拓扑锚定/对称重构),
-# 白线实时跟随真实车道线; 代价: 右弯远端内缩、带宽窄~5% 等模型固有偏差重新可见。0=整形默认。
-export ROAD_LANE_RAW="${ROAD_LANE_RAW:-0}"
+# 白线实时跟随真实车道线(台架选定默认); 代价: 右弯远端内缩、带宽窄~5% 等模型固有偏差重新可见。0=A/B 基线(整形)。
+export ROAD_LANE_RAW="${ROAD_LANE_RAW:-1}"
 # 用法: ./start-video.sh /tmp/cam.mp4 [焦距]
 #
 # 三个关键开关(真机都不要设):
