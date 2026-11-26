@@ -623,7 +623,8 @@ class ModelRenderer(Widget):
 
     # ROAD_LANE_RAW=1: 车道线直出模型原始几何, 跳过远端重构/外推/EMA/对称整形,
     # 白线实时跟随真实车道线(代价: 右弯远端内缩、带宽窄~5% 等模型固有偏差重新可见)。
-    self._lane_raw_mode = os.environ.get("ROAD_LANE_RAW", "0") == "1"
+    # 默认 1: 台架与真车统一走直出; 设 0 可回退到整形模式做 A/B。
+    self._lane_raw_mode = os.environ.get("ROAD_LANE_RAW", "1") == "1"
     if self._lane_raw_mode:
       print("ROAD_LANE_RAW=1: 车道线直出模型原始几何(无整形, 实时跟随)")
     self._carrot_active_lane_line = False
