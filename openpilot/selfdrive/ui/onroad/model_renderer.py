@@ -1449,11 +1449,32 @@ class ModelRenderer(Widget):
                         self._car_space_transform, self._clip_region)
 
 
+  def _lane_center_points(self):
+    """车道中线: 左右内线(索引1/2)中点。实测直道时模型 path 与车道中心偏差仅 0.02m,
+    但弯道内切 0.34~0.62m(30m 处), 带子据此偏离车道中线; 改用中线让带子贴车道。
+    置信度不足/形状不一致/含无效值时返回 None, 由调用方回退模型 path。"""
+    if self._lane_line_probs.shape[0] < 3:
+      return None
+    if self._lane_line_probs[1] <= 0.5 or self._lane_line_probs[2] <= 0.5:
+      return None
+    l1 = self._lane_lines[1].raw_points
+    l2 = self._lane_lines[2].raw_points
+    if l1.shape != l2.shape or l1.shape[0] < 10:
+      return None
+    if not (np.isfinite(l1[:, 1]).all() and np.isfinite(l2[:, 1]).all()):
+      return None
+    return np.column_stack([
+      l1[:, 0],
+      0.5 * (l1[:, 1] + l2[:, 1]),
+      0.5 * (l1[:, 2] + l2[:, 2]),
+    ]).astype(np.float32)
+
   def _make_path_data_carrot(self, sm) -> bool:
     if not sm.valid['modelV2'] or not sm.valid['carState']:
       return False
 
     self._carrot_active_lane_line = sm['controlsState'].activeLaneLine
+    lane_mid_used = False
 
     if self._carrot_active_lane_line and sm.valid['lateralPlan']:
       model_position = np.array([
@@ -1462,15 +1483,16 @@ class ModelRenderer(Widget):
         sm['lateralPlan'].position.z,
       ], dtype=np.float32).T
     else:
-      model_position = self._path.raw_points
+      # 带子贴车道中线(高置信时), 否则回退模型 path
+      model_position = self._lane_center_points()
+      if model_position is None:
+        model_position = self._path.raw_points
+      else:
+        lane_mid_used = True
 
     if model_position.shape[0] == 0:
       return False
 
-    max_distance = np.clip(model_position[-1, 0], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE)
-    max_distance -= 2.0
-
-    max_idx = self._get_path_length_idx(model_position[:, 0], max_distance)
     self._carrot_long_active = sm['selfdriveState'].enabled
 
     if self._carrot_active_lane_line:
@@ -1483,12 +1505,19 @@ class ModelRenderer(Widget):
     if not self._carrot_long_active:
       self._carrot_show_path_color = self._carrot_show_path_color_cruise_off
 
-    if self._carrot_show_path_mode == 0:
-      self._path.projected_points = self._build_path_polygon_update_line_data2_carrot(model_position, self._carrot_show_path_width, 1.22, 1.22, max_idx)
-    elif self._carrot_show_path_mode < 9 or self._carrot_show_path_mode in (13, 14, 15):
-      self._path.projected_points = self._build_path_polygon_update_line_data_dist_carrot(model_position, self._carrot_show_path_width, 1.22, 1.22, max_distance, False)
-    else:
-      self._path.projected_points = self._build_path_polygon_update_line_data_dist3_carrot(sm, model_position, self._carrot_show_path_width, 1.22, 1.22, max_distance, False)
+    def _build(pos):
+      md = np.clip(pos[-1, 0], MIN_DRAW_DISTANCE, MAX_DRAW_DISTANCE) - 2.0
+      mi = self._get_path_length_idx(pos[:, 0], md)
+      if self._carrot_show_path_mode == 0:
+        return self._build_path_polygon_update_line_data2_carrot(pos, self._carrot_show_path_width, 1.22, 1.22, mi)
+      if self._carrot_show_path_mode < 9 or self._carrot_show_path_mode in (13, 14, 15):
+        return self._build_path_polygon_update_line_data_dist_carrot(pos, self._carrot_show_path_width, 1.22, 1.22, md, False)
+      return self._build_path_polygon_update_line_data_dist3_carrot(sm, pos, self._carrot_show_path_width, 1.22, 1.22, md, False)
+
+    self._path.projected_points = _build(model_position)
+    if lane_mid_used and self._path.projected_points.size == 0:
+      # 车道中线投影退化(远端几何异常)时回退模型 path, 避免带子整体消失
+      self._path.projected_points = _build(self._path.raw_points)
 
     return self._path.projected_points.size != 0
 
