@@ -220,10 +220,13 @@ class ModelRenderer(Widget):
   def _draw_carrot_overlays(self, sm) -> None:
     timing = self._render_diagnostics
     timing.start()
-    self._rebuild_right_lines()
-    self._refine_far_render()
-    self._topo_anchor_far()
-    self._symmetrize_lanes()
+    if self._lane_raw_mode:
+      self._render_lines = [ll.raw_points for ll in self._lane_lines]
+    else:
+      self._rebuild_right_lines()
+      self._refine_far_render()
+      self._topo_anchor_far()
+      self._symmetrize_lanes()
     timing.call('path', self._draw_path_carrot, sm)
     timing.call('lanes', self._draw_lane_lines_carrot, sm)
     timing.call('blindspot', self._draw_blind_spot_carrot, sm)
@@ -617,6 +620,12 @@ class ModelRenderer(Widget):
     self._carrot_show_path_mode = 13
     self._carrot_show_path_color = 14
     self._carrot_show_path_width = 1.0
+
+    # ROAD_LANE_RAW=1: 车道线直出模型原始几何, 跳过远端重构/外推/EMA/对称整形,
+    # 白线实时跟随真实车道线(代价: 右弯远端内缩、带宽窄~5% 等模型固有偏差重新可见)。
+    self._lane_raw_mode = os.environ.get("ROAD_LANE_RAW", "0") == "1"
+    if self._lane_raw_mode:
+      print("ROAD_LANE_RAW=1: 车道线直出模型原始几何(无整形, 实时跟随)")
     self._carrot_active_lane_line = False
     self._carrot_long_active = False
     self._carrot_use_lane_line_speed_apply = 0
