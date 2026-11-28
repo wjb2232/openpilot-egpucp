@@ -135,6 +135,22 @@ ensure_n16() {
 }
 ensure_n16
 
+# ---------- 2.6) 相机自愈别名 ----------
+# camerad 掉帧自愈路径执行 `systemctl restart twgmsl-cam`, 但本机实际单元名是
+# twcamera.service; 建别名让自愈生效 (缺别名时相机一次握不上就只能重启整机)。
+# 只在 twcamera 存在时建, 非 TW 相机机型自动跳过。
+TW_UNIT=/etc/systemd/system/twcamera.service
+TW_ALIAS=/etc/systemd/system/twgmsl-cam.service
+if [ -f "$TW_UNIT" ]; then
+  if [ "$(readlink -f "$TW_ALIAS" 2>/dev/null)" = "$(readlink -f "$TW_UNIT" 2>/dev/null)" ]; then
+    say "twgmsl-cam 别名已就位, 跳过"
+  else
+    say "建立 twgmsl-cam -> twcamera.service 别名"
+    run sudo -n ln -sf "$TW_UNIT" "$TW_ALIAS"
+    run sudo -n systemctl daemon-reload
+  fi
+fi
+
 # ---------- 3) 门控参数 ----------
 for k in "${GATES[@]}"; do
   val="$(cat "$PARAMS_D/$k" 2>/dev/null || true)"
